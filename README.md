@@ -80,7 +80,7 @@ The frontend never talks to the database directly. Every request goes through th
 
 ## Data model
 
-Defined in [`schema.sql`](schema.sql) (PostgreSQL).
+Defined in [`db/schema.sql`](db/schema.sql) (PostgreSQL).
 
 **`slots`**: one row per physical parking space
 
@@ -108,7 +108,7 @@ Defined in [`schema.sql`](schema.sql) (PostgreSQL).
 
 ### Seed data
 
-[`seed.sql`](seed.sql) creates a 50-slot lot:
+[`db/seed.sql`](db/seed.sql) creates a 50-slot lot:
 
 | Class     | Labels   | Count |
 |-----------|----------|-------|
@@ -123,8 +123,8 @@ Requires PostgreSQL.
 
 ```bash
 createdb smart_parking
-psql smart_parking -f schema.sql
-psql smart_parking -f seed.sql
+psql smart_parking -f db/schema.sql
+psql smart_parking -f db/seed.sql
 ```
 
 Example query: the best slot for a Sedan (class 2), meaning the smallest free slot that fits:
