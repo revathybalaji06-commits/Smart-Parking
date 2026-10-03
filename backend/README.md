@@ -1,13 +1,12 @@
-# Backend
+# backend
 
-FastAPI service and matching engine. Owners: Kamalesh and Sachin.
+The server side of Smart Parking: a FastAPI service that holds the size-matching algorithm and talks to PostgreSQL. **Owners: Kamalesh and Sachin.**
 
-Implements the contract in [`../docs/api.md`](../docs/api.md). Schema and seed data live in [`../db`](../db).
+| Path                | What it is |
+|---------------------|------------|
+| [`app/`](app)       | The API code (empty; to be written). |
+| [`tests/`](tests)   | Automated tests (empty; to be written). |
+| `requirements.txt`  | Python packages the backend needs. Install with `pip install -r requirements.txt` inside a virtual environment. |
+| `.env.example`      | Template for settings: `DATABASE_URL` (which database to use) and `CORS_ORIGINS` (which frontend addresses may call the API). Copy to `.env`, which is git-ignored. |
 
-```
-app/     API code (routes, reservation logic, database connection)
-tests/   pytest tests
-```
-
-Both folders are empty on purpose; the code is to be written by the team.
-Dependencies are listed in `requirements.txt`; connection settings go in `.env` (see `.env.example`).
+The backend must follow the contract in [`../docs/api.md`](../docs/api.md) and use the tables in [`../db/schema.sql`](../db/schema.sql).
