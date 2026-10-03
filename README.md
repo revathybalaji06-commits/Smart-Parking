@@ -119,12 +119,30 @@ Defined in [`db/schema.sql`](db/schema.sql) (PostgreSQL).
 
 ## Getting started
 
-Requires PostgreSQL.
+Requires PostgreSQL and Python 3.11+.
 
 ```bash
+# database
 createdb smart_parking
 psql smart_parking -f db/schema.sql
 psql smart_parking -f db/seed.sql
+
+# backend
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r backend/requirements.txt
+cd backend
+cp .env.example .env            # then edit DATABASE_URL if needed
+export DATABASE_URL=postgresql://localhost/smart_parking
+uvicorn app.main:app --reload   # API on http://localhost:8000, docs at /docs
+```
+
+Run the tests (they use a scratch database and **recreate its tables**):
+
+```bash
+createdb smart_parking_test
+export TEST_DATABASE_URL=postgresql://localhost/smart_parking_test
+pytest backend
 ```
 
 Example query: the best slot for a Sedan (class 2), meaning the smallest free slot that fits:
@@ -137,20 +155,9 @@ ORDER BY size_class, id
 LIMIT 1;
 ```
 
-Live availability per size class:
-
-```sql
-SELECT size_class,
-       COUNT(*) FILTER (WHERE status = 'free') AS available,
-       COUNT(*)                                AS max
-FROM slots
-GROUP BY size_class
-ORDER BY size_class;
-```
-
 ## Project status and roadmap
 
-Currently in this repository: the database schema and seed data (week 1).
+Done: database schema and seed data, the matching/reservation logic (reserve, arrive, depart, cancel, expiry, availability), the FastAPI endpoints from `docs/api.md`, and tests. Not started: the frontend and the sensor layer.
 
 | Week | Phase               | Goals                                                                              |
 |------|---------------------|------------------------------------------------------------------------------------|

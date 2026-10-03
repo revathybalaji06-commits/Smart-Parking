@@ -1,14 +1,6 @@
-"""Tests for reserve(). Needs a scratch Postgres DB:
-
-    createdb smart_parking_test
-    export TEST_DATABASE_URL=postgresql://localhost/smart_parking_test
-    pytest backend/tests
-
-WARNING: the fixture drops and recreates the slots/reservations tables.
-"""
+"""Tests for reserve(). Fixtures and setup instructions: conftest.py."""
 import os
 import threading
-from pathlib import Path
 
 import pytest
 
@@ -16,19 +8,6 @@ from app.db import get_conn
 from app.reservations import ReservationError, reserve
 
 URL = os.environ.get("TEST_DATABASE_URL")
-DB_DIR = Path(__file__).resolve().parents[2] / "db"
-
-pytestmark = pytest.mark.skipif(not URL, reason="TEST_DATABASE_URL not set")
-
-
-@pytest.fixture()
-def conn():
-    c = get_conn(URL)
-    c.execute("DROP TABLE IF EXISTS reservations, slots CASCADE")
-    c.execute((DB_DIR / "schema.sql").read_text())
-    c.execute((DB_DIR / "seed.sql").read_text())
-    yield c
-    c.close()
 
 
 def fill_class(conn, size_class):
