@@ -18,3 +18,7 @@ CREATE TABLE reservations (
     ended_at      TIMESTAMPTZ
 );
 
+
+-- One active reservation per slot (safety net against double-booking)
+CREATE UNIQUE INDEX one_active_reservation_per_slot
+    ON reservations (slot_id) WHERE status = 'active';
