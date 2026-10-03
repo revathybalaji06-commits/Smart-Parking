@@ -1,4 +1,4 @@
-# API Contract (v0.1 draft)
+# API Contract (v0.2)
 
 This is the source of truth between the backend team (Kamalesh, Sachin) and the frontend team (Thomas, Kailesh).
 Change it only through a PR that both teams approve.
@@ -13,17 +13,15 @@ Change it only through a PR that both teams approve.
 All errors use the same shape:
 
 ```json
-{ "error": "no_valid_slot", "message": "No free slot fits this vehicle class.", "suggested_upgrade_class": 3 }
+{ "error": "no_valid_slot", "message": "No free slot fits this vehicle class." }
 ```
-
-`suggested_upgrade_class` is present only when a larger class has a free slot.
 
 | HTTP | `error` | Meaning |
 |------|---------|---------|
 | 400 | `invalid_request` | Missing or malformed field (e.g. class not in 1-4) |
 | 404 | `not_found` | Reservation or slot does not exist |
 | 409 | `lot_full` | No free slot of any size |
-| 409 | `no_valid_slot` | Free slots exist, but none fit this vehicle class |
+| 409 | `no_valid_slot` | Free slots exist, but all are smaller than the vehicle |
 | 409 | `invalid_state` | Action not allowed in the current state (e.g. departing a cancelled reservation) |
 
 ## GET /availability
@@ -57,7 +55,7 @@ All slots, for drawing the lot map.
 
 ## POST /reserve
 
-Reserves the smallest free slot that fits the vehicle (class N or larger).
+Reserves the smallest free slot that fits the vehicle (class N or larger). If the vehicle's own class is full, the next larger class is used automatically. The slot is held for 15 minutes; an unclaimed hold expires and the slot is freed.
 
 Request:
 
@@ -82,7 +80,7 @@ Errors: `400 invalid_request`, `409 lot_full`, `409 no_valid_slot`.
 
 ## POST /reservations/{id}/arrive
 
-Vehicle has reached its slot; the slot becomes `occupied`.
+Vehicle has reached its slot; the slot becomes `occupied` and the hold timer is cleared.
 
 Response `200`:
 
@@ -132,8 +130,10 @@ Response `200`:
 
 Reservation `status`: `active`, `completed`, `expired`, `cancelled`.
 
-## Open questions
+## Decisions
 
-- Should "next size up" be offered automatically, or only suggested via `suggested_upgrade_class` and re-sent by the client? (Draft assumes the client re-sends.)
-- Reservation hold time before `expires_at` (draft: 15 minutes).
+- Larger slots are assigned **automatically** when the vehicle's own class is full (no `suggested_upgrade_class`).
+- Reservation hold time: **15 minutes** (`HOLD_MINUTES` in `backend/app/reservations.py`).
 - Authentication: none in the MVP.
+- Validation errors return `400 invalid_request` (not FastAPI's default 422).
+- Live interactive docs when the backend runs: `/docs`.
