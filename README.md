@@ -4,6 +4,9 @@ Real-time capacity tracking with a **dimensional matching algorithm** for size-a
 
 A first-semester systems project by A. Kamalesh, Kailesh, Thomas and Sachin.
 
+**Live app: https://smart-parking-2zvm.onrender.com**
+(Free hosting sleeps when idle, so the first visit can take about a minute. On a phone, use "Add to Home Screen" to install it like an app.)
+
 ## The problem
 
 Most parking systems only report a single number: how many spaces are open. That hides the real cause of congestion, which is size mismatch rather than scarcity.
