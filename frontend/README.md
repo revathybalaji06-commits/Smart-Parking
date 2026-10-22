@@ -10,6 +10,19 @@ The driver-facing web app, built with React and Vite. **Owners: Thomas and Kaile
 | `src/main.jsx`   | Starts React. |
 | `vite.config.js` | While developing, forwards API calls to the backend on port 8000. |
 
+## Installable app (PWA)
+The site can be installed on a phone like an app. Files in `public/`:
+
+| File                    | What it does |
+|-------------------------|--------------|
+| `manifest.webmanifest`  | App name, colours, icons, and `display: standalone` (opens full-screen, no browser bar). |
+| `sw.js`                 | Service worker. Keeps a copy of the page so the app opens offline. It never saves parking data; that always comes live from the server. |
+| `icon-*.png`, `apple-touch-icon.png`, `favicon.png` | App icons. |
+
+Installing needs the deployed `https` address:
+- **iPhone (Safari):** Share button, then **Add to Home Screen**.
+- **Android (Chrome):** menu, then **Install app** (or **Add to Home screen**).
+
 ## Run while developing
 Start the backend first (see the main README), then:
 

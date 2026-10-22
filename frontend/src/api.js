@@ -3,11 +3,17 @@
 const BASE = import.meta.env.VITE_API_URL || "";
 
 async function call(path, method = "GET", body) {
-  const response = await fetch(BASE + path, {
-    method,
-    headers: { "Content-Type": "application/json" },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let response;
+  try {
+    response = await fetch(BASE + path, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch (e) {
+    // no internet, or the server is asleep
+    throw new Error("Cannot reach the server. Check your internet connection.");
+  }
   const data = await response.json();
   if (!response.ok) {
     throw new Error(data.message || "Something went wrong");
