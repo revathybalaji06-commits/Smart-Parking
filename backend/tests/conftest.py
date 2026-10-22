@@ -20,5 +20,6 @@ def conn():
     c = get_conn()
     c.execute("DROP TABLE IF EXISTS reservations, slots CASCADE")
     setup_database(c)  # fresh tables + the 50 slots
+    c.execute("UPDATE slots SET status = 'free'")  # the demo seed has some cars parked; start empty
     yield c
     c.close()

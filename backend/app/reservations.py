@@ -197,6 +197,24 @@ def get_reservation(conn, reservation_id):
     }
 
 
+def get_slot_for_route(conn, reservation_id):
+    """The slot (with its map position) of an active reservation."""
+    row = conn.execute(
+        """
+        SELECT s.id, s.label, s.size_class, s.row_name, s.x, s.y, s.width, s.height,
+               s.access_x, s.access_y, r.status
+        FROM reservations r JOIN slots s ON s.id = r.slot_id
+        WHERE r.id = %s
+        """,
+        (reservation_id,),
+    ).fetchone()
+    if row is None:
+        raise ParkingError("not_found", "Reservation not found.", 404)
+    if row["status"] != "active":
+        raise ParkingError("invalid_state", "This reservation is not active.", 409)
+    return row
+
+
 def get_availability(conn):
     """How many slots are free, per size class and in total.
 
@@ -225,5 +243,8 @@ def list_slots(conn):
     """Every slot with its status, used to draw the map of the lot."""
     free_expired_holds(conn)
     return conn.execute(
-        "SELECT id, label, size_class, status FROM slots ORDER BY id"
+        """
+        SELECT id, label, size_class, status, row_name, x, y, width, height
+        FROM slots ORDER BY id
+        """
     ).fetchall()

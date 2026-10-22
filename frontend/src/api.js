@@ -29,3 +29,6 @@ export const reserve = (plate, vehicleClass) =>
 export const arrive = (id) => call(`/reservations/${id}/arrive`, "POST");
 export const depart = (id) => call(`/reservations/${id}/depart`, "POST");
 export const cancel = (id) => call(`/reservations/${id}/cancel`, "POST");
+
+export const getLayout = () => call("/layout");
+export const getRoute = (id) => call(`/reservations/${id}/route`);

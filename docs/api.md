@@ -1,4 +1,4 @@
-# API Contract (v0.2)
+# API Contract (v0.3)
 
 This is the source of truth between the backend team (Kamalesh, Sachin) and the frontend team (Thomas, Kailesh).
 Change it only through a PR that both teams approve.
@@ -48,10 +48,28 @@ All slots, for drawing the lot map.
 
 ```json
 [
-  { "id": 1, "label": "C1", "size_class": 1, "status": "free" },
-  { "id": 11, "label": "S1", "size_class": 2, "status": "occupied" }
+  { "id": 1, "label": "C1", "size_class": 1, "status": "free",
+    "row_name": "Row 1", "x": 5.9, "y": 40.0, "width": 4.6, "height": 2.4 }
 ]
 ```
+
+`x`, `y`, `width`, `height` give the bay's rectangle on the map (units are roughly metres, `y` grows downward).
+
+## GET /layout
+
+Everything needed to draw the lot: size, one-way roads, gates, trees and buildings.
+
+```json
+{
+  "width": 90, "height": 92, "road_width": 7,
+  "edges": [ { "from": "ENTRY", "to": "J2", "x1": 14, "y1": 86, "x2": 14, "y2": 60 } ],
+  "gates": { "entry": { "x": 14, "y": 86 }, "exit": { "x": 76, "y": 86 } },
+  "trees": [ { "x": 25, "y": 24, "r": 1.8 } ],
+  "buildings": [ { "name": "Security", "x": 38, "y": 76, "w": 14, "h": 8 } ]
+}
+```
+
+Each edge is a one-way road piece, driven from `(x1, y1)` to `(x2, y2)`. Cars drive on the left.
 
 ## POST /reserve
 
@@ -77,6 +95,24 @@ Response `201`:
 ```
 
 Errors: `400 invalid_request`, `409 lot_full`, `409 no_valid_slot`.
+
+## GET /reservations/{id}/route
+
+The exact route from the entry gate to the reserved bay, following the one-way roads. Only for an `active` reservation (`409 invalid_state` otherwise).
+
+```json
+{
+  "slot": { "id": 14, "label": "S4", "row_name": "Row 2", "size_class": 2 },
+  "points": [ { "x": 14, "y": 86 }, { "x": 14, "y": 12 }, { "x": 47.45, "y": 12 }, { "x": 47.45, "y": 18 } ],
+  "distances": [ 0, 74, 107.45, 113.45 ],
+  "length_m": 113,
+  "steps": [
+    { "text": "Enter through the entry gate and drive straight for 74 m.", "point_index": 1, "distance": 74 }
+  ]
+}
+```
+
+`points` is the line to draw. `distances[i]` is how far along the route point `i` is, so a moving dot can be placed anywhere on it. Each step ends at `points[point_index]`, `distance` metres from the gate.
 
 ## POST /reservations/{id}/arrive
 
@@ -136,4 +172,5 @@ Reservation `status`: `active`, `completed`, `expired`, `cancelled`.
 - Reservation hold time: **15 minutes** (`HOLD_MINUTES` in `backend/app/reservations.py`).
 - Authentication: none in the MVP.
 - Validation errors return `400 invalid_request` (not FastAPI's default 422).
+- Other cars: the server simulates cars arriving and leaving (stands in for entrance sensors) and keeps the lot about 40% full. It never changes a slot belonging to an app reservation. Set `SIMULATE_TRAFFIC=0` to turn it off.
 - Live interactive docs when the backend runs: `/docs`.

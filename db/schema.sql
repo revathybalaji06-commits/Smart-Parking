@@ -8,6 +8,16 @@ CREATE TABLE IF NOT EXISTS slots (
     UNIQUE (lot_id, label)
 );
 
+-- Where each slot is drawn on the map and where the road is in front of it.
+-- ADD COLUMN IF NOT EXISTS also upgrades a database made before the map existed.
+ALTER TABLE slots ADD COLUMN IF NOT EXISTS row_name  TEXT;
+ALTER TABLE slots ADD COLUMN IF NOT EXISTS x         REAL;   -- top-left corner of the bay
+ALTER TABLE slots ADD COLUMN IF NOT EXISTS y         REAL;
+ALTER TABLE slots ADD COLUMN IF NOT EXISTS width     REAL;
+ALTER TABLE slots ADD COLUMN IF NOT EXISTS height    REAL;
+ALTER TABLE slots ADD COLUMN IF NOT EXISTS access_x  REAL;   -- point on the road in front of the bay
+ALTER TABLE slots ADD COLUMN IF NOT EXISTS access_y  REAL;
+
 CREATE TABLE IF NOT EXISTS reservations (
     id            SERIAL PRIMARY KEY,
     slot_id       INT NOT NULL REFERENCES slots(id),
