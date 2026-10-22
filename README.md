@@ -119,30 +119,34 @@ Defined in [`db/schema.sql`](db/schema.sql) (PostgreSQL).
 
 ## Getting started
 
-Requires PostgreSQL and Python 3.11+.
+Requires PostgreSQL, Python 3.11+ and Node 18+.
 
 ```bash
-# database
+# 1. database (the server creates the tables and 50 slots on first start)
 createdb smart_parking
-psql smart_parking -f db/schema.sql
-psql smart_parking -f db/seed.sql
 
-# backend
+# 2. backend
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r backend/requirements.txt
 cd backend
-cp .env.example .env            # then edit DATABASE_URL if needed
-export DATABASE_URL=postgresql://localhost/smart_parking
-uvicorn app.main:app --reload   # API on http://localhost:8000, docs at /docs
+DATABASE_URL=postgresql://localhost/smart_parking uvicorn app.main:app --reload
+# API on http://localhost:8000, interactive docs at /docs
+
+# 3. frontend (in a second terminal, from the project root)
+cd frontend
+npm install
+npm run dev          # http://localhost:5173
 ```
+
+Run everything from one server (as in deployment): `cd frontend && npm run build`, then start the backend and open http://localhost:8000.
 
 Run the tests (they use a scratch database and **recreate its tables**):
 
 ```bash
 createdb smart_parking_test
-export TEST_DATABASE_URL=postgresql://localhost/smart_parking_test
-pytest backend
+cd backend
+TEST_DATABASE_URL=postgresql://localhost/smart_parking_test pytest
 ```
 
 Example query: the best slot for a Sedan (class 2), meaning the smallest free slot that fits:
@@ -155,9 +159,19 @@ ORDER BY size_class, id
 LIMIT 1;
 ```
 
+## Deploy
+
+The repo includes a `Dockerfile` (builds the React app, then runs the FastAPI server that also serves it) and a `render.yaml` blueprint for [Render](https://render.com):
+
+1. Sign in to Render with GitHub and choose **New > Blueprint**.
+2. Select this repository. Render creates the web service and a free PostgreSQL database and links them through `DATABASE_URL`.
+3. When the deploy finishes, open the `.onrender.com` address Render shows.
+
+The free plan sleeps after inactivity, so the first request can take about a minute.
+
 ## Project status and roadmap
 
-Done: database schema and seed data, the matching/reservation logic (reserve, arrive, depart, cancel, expiry, availability), the FastAPI endpoints from `docs/api.md`, and tests. Not started: the frontend and the sensor layer.
+Done: database, matching/reservation logic, API, React frontend, tests and deployment files. The sensor layer is simulated: the "I have arrived" and "I am leaving" buttons stand in for entrance sensors.
 
 | Week | Phase               | Goals                                                                              |
 |------|---------------------|------------------------------------------------------------------------------------|
