@@ -1,4 +1,5 @@
 """The web API. Each function below is one URL from docs/api.md."""
+import asyncio
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -10,6 +11,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from . import layout, routing, simulator
 from . import reservations as parking
 from .db import get_conn, setup_database
 
@@ -20,7 +22,17 @@ async def lifespan(app):
     conn = get_conn()
     setup_database(conn)
     conn.close()
+
+    # Pretend other cars arrive and leave (set SIMULATE_TRAFFIC=0 to turn off)
+    background = None
+    if os.environ.get("SIMULATE_TRAFFIC", "1") == "1":
+        conn = get_conn()
+        simulator.warm_up(conn)
+        conn.close()
+        background = asyncio.create_task(simulator.run_forever())
     yield
+    if background:
+        background.cancel()
 
 
 app = FastAPI(title="Smart Parking API", lifespan=lifespan)
@@ -78,6 +90,12 @@ def slots(conn=Depends(get_db)):
     return parking.list_slots(conn)
 
 
+@app.get("/layout")
+def get_layout():
+    """Roads, gates and decorations, so the frontend can draw the lot."""
+    return layout.get_layout()
+
+
 @app.post("/reserve", status_code=201)
 def reserve(body: ReserveRequest, conn=Depends(get_db)):
     return parking.reserve(conn, body.plate, body.vehicle_class)
@@ -86,6 +104,13 @@ def reserve(body: ReserveRequest, conn=Depends(get_db)):
 @app.get("/reservations/{reservation_id}")
 def get_reservation(reservation_id: int, conn=Depends(get_db)):
     return parking.get_reservation(conn, reservation_id)
+
+
+@app.get("/reservations/{reservation_id}/route")
+def get_route(reservation_id: int, conn=Depends(get_db)):
+    """The exact route from the entry gate to the reserved slot, with directions."""
+    slot = parking.get_slot_for_route(conn, reservation_id)
+    return routing.build_route(slot)
 
 
 @app.post("/reservations/{reservation_id}/arrive")

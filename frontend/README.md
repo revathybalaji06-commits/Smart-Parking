@@ -4,7 +4,8 @@ The driver-facing web app, built with React and Vite. **Owners: Thomas and Kaile
 
 | File             | What it does |
 |------------------|--------------|
-| `src/App.jsx`    | The whole page: availability cards, reserve form, your reservation (arrive / leave / cancel), and the map of the lot. Refreshes every 5 seconds. |
+| `src/App.jsx`    | The page: availability cards, reserve form, your reservation with step-by-step directions and the moving dot, and the lot. Refreshes every 5 seconds. |
+| `src/LotMap.jsx` | Draws the lot as an SVG map: one-way roads with arrows, gates, trees, bays, parked cars, the blue route and the moving dot. |
 | `src/api.js`     | One small function per backend URL in [`docs/api.md`](../docs/api.md). |
 | `src/App.css`    | The styles. |
 | `src/main.jsx`   | Starts React. |
