@@ -4,8 +4,10 @@ The driver-facing web app, built with React and Vite. **Owners: Thomas and Kaile
 
 | File             | What it does |
 |------------------|--------------|
-| `src/App.jsx`    | The page: availability cards, reserve form, your reservation with step-by-step directions and the moving dot, and the lot. Refreshes every 5 seconds. |
+| `src/App.jsx`    | The page. Loads the data from the server every 5 seconds and puts the pieces below together. |
+| `src/Availability.jsx`, `src/ReserveForm.jsx`, `src/Reservation.jsx` | The free-slot cards, the reserve form, and your reservation (directions plus arrive / leave / cancel). |
 | `src/LotMap.jsx` | Draws the lot as an SVG map: one-way roads with arrows, gates, trees, bays, parked cars, the blue route and the moving dot. |
+| `src/useGuidance.js` | Moves the dot along the route and keeps track of the current step. |
 | `src/api.js`     | One small function per backend URL in [`docs/api.md`](../docs/api.md). |
 | `src/App.css`    | The styles. |
 | `src/main.jsx`   | Starts React. |
@@ -33,7 +35,7 @@ npm install
 npm run dev        # opens http://localhost:5173
 ```
 
-To point at a different backend, set `VITE_API_URL` (for example `VITE_API_URL=https://my-backend.example.com npm run dev`). If it is not set, the app calls the same server that served the page.
+While developing, `vite.config.js` forwards API calls to the backend, so there is nothing to configure.
 
 ## Build
 `npm run build` creates the `dist/` folder. The backend serves it automatically, so the whole app runs from one server.

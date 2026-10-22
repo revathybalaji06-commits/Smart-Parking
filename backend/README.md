@@ -7,6 +7,6 @@ The server side of Smart Parking: a FastAPI service that holds the size-matching
 | [`app/`](app)       | The API code. |
 | [`tests/`](tests)   | Automated tests. |
 | `requirements.txt`  | Python packages the backend needs. Install with `pip install -r requirements.txt` inside a virtual environment. |
-| `.env.example`      | Template for settings: `DATABASE_URL` (which database to use) and `CORS_ORIGINS` (which frontend addresses may call the API). Copy to `.env`, which is git-ignored. |
+| `.env.example`      | Template for settings: `DATABASE_URL` (which database to use). Copy to `.env`, which is git-ignored. |
 
 The backend must follow the contract in [`../docs/api.md`](../docs/api.md) and use the tables in [`../db/schema.sql`](../db/schema.sql).

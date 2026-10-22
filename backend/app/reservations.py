@@ -37,6 +37,12 @@ def free_expired_holds(conn):
     )
 
 
+def set_slot(conn, slot_id, status):
+    conn.execute(
+        "UPDATE slots SET status = %s, updated_at = now() WHERE id = %s", (status, slot_id)
+    )
+
+
 def reserve(conn, plate, vehicle_class):
     """The core idea: give the car the SMALLEST free slot that it fits in."""
     plate = plate.strip()
@@ -72,15 +78,12 @@ def reserve(conn, plate, vehicle_class):
                 "no_valid_slot", "No free slot is big enough for this vehicle.", 409
             )
 
-        conn.execute(
-            "UPDATE slots SET status = 'reserved', updated_at = now() WHERE id = %s",
-            (slot["id"],),
-        )
+        set_slot(conn, slot["id"], "reserved")
         reservation = conn.execute(
             """
             INSERT INTO reservations (slot_id, plate, vehicle_class, expires_at)
             VALUES (%s, %s, %s, now() + make_interval(mins => %s))
-            RETURNING id, status, expires_at
+            RETURNING id, expires_at
             """,
             (slot["id"], plate, vehicle_class, HOLD_MINUTES),
         ).fetchone()
@@ -90,13 +93,13 @@ def reserve(conn, plate, vehicle_class):
         "slot_id": slot["id"],
         "label": slot["label"],
         "size_class": slot["size_class"],
-        "status": reservation["status"],
-        "expires_at": reservation["expires_at"].isoformat(),
+        "status": "active",
+        "expires_at": reservation["expires_at"],
     }
 
 
-def find_reservation(conn, reservation_id):
-    """Look up a reservation and lock it (and its slot) until we finish."""
+def lock_reservation(conn, reservation_id, slot_must_be):
+    """Find a reservation, lock it (and its slot) until we finish, and check its state."""
     row = conn.execute(
         """
         SELECT r.id, r.slot_id, r.status, r.expires_at < now() AS timed_out,
@@ -109,57 +112,40 @@ def find_reservation(conn, reservation_id):
     ).fetchone()
     if row is None:
         raise ParkingError("not_found", "Reservation not found.", 404)
+    if row["status"] != "active" or row["slot_status"] != slot_must_be:
+        raise ParkingError("invalid_state", "This cannot be done in the current state.", 409)
     return row
 
 
-def set_slot(conn, slot_id, status):
-    conn.execute(
-        "UPDATE slots SET status = %s, updated_at = now() WHERE id = %s",
-        (status, slot_id),
-    )
-
-
 def arrive(conn, reservation_id):
-    """The car reached its slot."""
+    """The car reached its slot: reserved -> occupied."""
     with conn.transaction():
-        r = find_reservation(conn, reservation_id)
-        if r["status"] != "active" or r["slot_status"] != "reserved":
-            raise ParkingError("invalid_state", "This reservation cannot be used.", 409)
+        r = lock_reservation(conn, reservation_id, slot_must_be="reserved")
         if r["timed_out"]:
             raise ParkingError("invalid_state", "The 15-minute hold has expired.", 409)
         # expires_at = NULL: once parked, the hold timer no longer applies
-        conn.execute(
-            "UPDATE reservations SET expires_at = NULL WHERE id = %s", (reservation_id,)
-        )
+        conn.execute("UPDATE reservations SET expires_at = NULL WHERE id = %s", (reservation_id,))
         set_slot(conn, r["slot_id"], "occupied")
     return {"reservation_id": reservation_id, "slot_id": r["slot_id"], "slot_status": "occupied"}
 
 
 def depart(conn, reservation_id):
-    """The car leaves, so the slot is free for the next one."""
+    """The car leaves, so the slot is free for the next one: occupied -> free."""
     with conn.transaction():
-        r = find_reservation(conn, reservation_id)
-        if r["status"] != "active" or r["slot_status"] != "occupied":
-            raise ParkingError("invalid_state", "The car has not arrived yet.", 409)
+        r = lock_reservation(conn, reservation_id, slot_must_be="occupied")
         conn.execute(
             "UPDATE reservations SET status = 'completed', ended_at = now() WHERE id = %s",
             (reservation_id,),
         )
         set_slot(conn, r["slot_id"], "free")
-    return {
-        "reservation_id": reservation_id,
-        "slot_id": r["slot_id"],
-        "slot_status": "free",
-        "status": "completed",
-    }
+    return {"reservation_id": reservation_id, "slot_id": r["slot_id"],
+            "slot_status": "free", "status": "completed"}
 
 
 def cancel(conn, reservation_id):
-    """The driver changes their mind before arriving."""
+    """The driver changes their mind before arriving: reserved -> free."""
     with conn.transaction():
-        r = find_reservation(conn, reservation_id)
-        if r["status"] != "active" or r["slot_status"] != "reserved":
-            raise ParkingError("invalid_state", "This reservation cannot be cancelled.", 409)
+        r = lock_reservation(conn, reservation_id, slot_must_be="reserved")
         conn.execute(
             "UPDATE reservations SET status = 'cancelled', ended_at = now() WHERE id = %s",
             (reservation_id,),
@@ -171,8 +157,8 @@ def cancel(conn, reservation_id):
 def get_reservation(conn, reservation_id):
     row = conn.execute(
         """
-        SELECT r.id, r.plate, r.vehicle_class, r.slot_id, s.label, r.status,
-               r.created_at, r.expires_at, r.ended_at
+        SELECT r.id AS reservation_id, r.plate, r.vehicle_class, r.slot_id, s.label,
+               r.status, r.created_at, r.expires_at, r.ended_at
         FROM reservations r JOIN slots s ON s.id = r.slot_id
         WHERE r.id = %s
         """,
@@ -180,29 +166,14 @@ def get_reservation(conn, reservation_id):
     ).fetchone()
     if row is None:
         raise ParkingError("not_found", "Reservation not found.", 404)
-
-    def to_text(time):  # datetimes must become text to be sent as JSON
-        return time.isoformat() if time else None
-
-    return {
-        "reservation_id": row["id"],
-        "plate": row["plate"],
-        "vehicle_class": row["vehicle_class"],
-        "slot_id": row["slot_id"],
-        "label": row["label"],
-        "status": row["status"],
-        "created_at": to_text(row["created_at"]),
-        "expires_at": to_text(row["expires_at"]),
-        "ended_at": to_text(row["ended_at"]),
-    }
+    return row
 
 
 def get_slot_for_route(conn, reservation_id):
-    """The slot (with its map position) of an active reservation."""
+    """The slot of an active reservation, with its position on the map."""
     row = conn.execute(
         """
-        SELECT s.id, s.label, s.size_class, s.row_name, s.x, s.y, s.width, s.height,
-               s.access_x, s.access_y, r.status
+        SELECT s.label, s.x, s.y, s.width, s.height, s.access_x, s.access_y, r.status
         FROM reservations r JOIN slots s ON s.id = r.slot_id
         WHERE r.id = %s
         """,
@@ -240,11 +211,8 @@ def get_availability(conn):
 
 
 def list_slots(conn):
-    """Every slot with its status, used to draw the map of the lot."""
+    """Every slot with its status and position, used to draw the map of the lot."""
     free_expired_holds(conn)
     return conn.execute(
-        """
-        SELECT id, label, size_class, status, row_name, x, y, width, height
-        FROM slots ORDER BY id
-        """
+        "SELECT id, label, size_class, status, x, y, width, height FROM slots ORDER BY id"
     ).fetchall()

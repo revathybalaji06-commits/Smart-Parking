@@ -2,87 +2,75 @@
 
 Run from the project root:   python3 db/generate_seed.py
 
-Units are roughly metres. The lot is 90 wide and 92 tall, x goes right, y goes DOWN.
-Roads are one-way and 7 wide (so a road edge is 3.5 from its centre line).
-Cars drive on the LEFT (India), so the loop around the lot runs clockwise.
-
-        entry gate (14,86)                        exit gate (76,86)
-             |                                           ^
-   left road x=14  (north)    top road y=12 (east)    right road x=76 (south)
-   cross aisles: y=36 and y=60 (east)
+Units are roughly metres. The lot is 90 wide and 92 tall. x goes right, y goes DOWN.
+Roads are one-way and 7 wide, so a road edge is 3.5 from its centre line. Cars drive
+on the LEFT (India). Roads: left x=14, right x=76, top y=12, cross aisles y=36 and y=60.
 """
-import random
 
-ROAD_HALF = 3.5
+HALF_ROAD = 3.5
+
 # (width along the row, depth) of one bay for each size class
 BAY = {1: (2.4, 4.6), 2: (2.7, 5.0), 3: (3.0, 5.6), 4: (3.4, 6.0)}
 PREFIX = {1: "C", 2: "S", 3: "U", 4: "F"}
 
-# One row = a line of bays beside one road.
-#   kind "H": road runs left-right at y=at;  side "below" or "above" the road
-#   kind "V": road runs up-down at x=at;     side "west" or "east" of the road
-#   items: (class, how_many) or ("gap", length). Rows start at different places on
-#   purpose, so the lot does not look like a perfect grid.
+# A row is a line of bays beside one road:
+#   (road direction, road position, side of the road, where the row starts, bays)
+# "across" roads run left-right at y=position; "up-down" roads run at x=position.
+# Bays are (size class, how many) or ("gap", length). The rows start in different
+# places on purpose, so the lot does not look like a perfect grid.
 ROWS = [
-    ("Row 1", "V", 14, "west",  40, [(1, 6)]),
-    ("Row 2", "H", 12, "below", 38, [(2, 6), ("gap", 4), (3, 3)]),
-    ("Row 3", "H", 36, "above", 22, [(3, 3), ("gap", 3), (2, 6)]),
-    ("Row 4", "H", 36, "below", 34, [(2, 5), ("gap", 5), (3, 3)]),
-    ("Row 5", "H", 60, "above", 20, [(3, 3), (2, 3)]),
-    ("Row 6", "H", 60, "below", 22, [(1, 4)]),
-    ("Row 7", "V", 76, "east",  17, [(4, 8)]),
+    ("up-down", 14, "west", 40, [(1, 6)]),
+    ("across", 12, "below", 38, [(2, 6), ("gap", 4), (3, 3)]),
+    ("across", 36, "above", 22, [(3, 3), ("gap", 3), (2, 6)]),
+    ("across", 36, "below", 34, [(2, 5), ("gap", 5), (3, 3)]),
+    ("across", 60, "above", 20, [(3, 3), (2, 3)]),
+    ("across", 60, "below", 22, [(1, 4)]),
+    ("up-down", 76, "east", 17, [(4, 8)]),
 ]
 
-counters = {1: 0, 2: 0, 3: 0, 4: 0}
+count = {1: 0, 2: 0, 3: 0, 4: 0}
 slots = []
 
-for name, kind, at, side, start, items in ROWS:
-    pos = start
-    for item, amount in items:
-        if item == "gap":
-            pos += amount
+for road, at, side, start, bays in ROWS:
+    along = start  # how far along the row we are
+    for size, amount in bays:
+        if size == "gap":
+            along += amount
             continue
-        along, depth = BAY[item]
+        bay_width, depth = BAY[size]
         for _ in range(amount):
-            counters[item] += 1
-            label = f"{PREFIX[item]}{counters[item]}"
-            if kind == "H":
-                x, y = pos, (at + ROAD_HALF if side == "below" else at - ROAD_HALF - depth)
-                w, h = along, depth
-                access = (x + w / 2, at)          # the spot on the road in front of the bay
+            count[size] += 1
+            if road == "across":
+                x = along
+                y = at + HALF_ROAD if side == "below" else at - HALF_ROAD - depth
+                w, h = bay_width, depth
+                access = (x + w / 2, at)  # the spot on the road in front of the bay
             else:
-                x, y = (at + ROAD_HALF if side == "east" else at - ROAD_HALF - depth), pos
-                w, h = depth, along
+                x = at + HALF_ROAD if side == "east" else at - HALF_ROAD - depth
+                y = along
+                w, h = depth, bay_width
                 access = (at, y + h / 2)
-            slots.append(dict(label=label, cls=item, row=name, x=x, y=y, w=w, h=h, ax=access[0], ay=access[1]))
-            pos += along
+            slots.append((f"{PREFIX[size]}{count[size]}", size, x, y, w, h, access))
+            along += bay_width
 
-# ---- checks: no two bays overlap, and counts are right ----
-def overlap(a, b):
-    return a["x"] < b["x"] + b["w"] and b["x"] < a["x"] + a["w"] and a["y"] < b["y"] + b["h"] and b["y"] < a["y"] + a["h"]
-
-for i, a in enumerate(slots):
-    for b in slots[i + 1:]:
-        assert not overlap(a, b), (a["label"], b["label"])
-assert counters == {1: 10, 2: 20, 3: 12, 4: 8}, counters
-
-# ---- some cars are already parked, at random spots (same every time we run this) ----
-rng = random.Random(7)
-parked = set(rng.sample([s["label"] for s in slots], 16))
+# Check: 50 slots in the right sizes, and no two bays overlap
+assert count == {1: 10, 2: 20, 3: 12, 4: 8}, count
+for i, (_, _, x1, y1, w1, h1, _) in enumerate(slots):
+    for _, _, x2, y2, w2, h2, _ in slots[i + 1:]:
+        assert not (x1 < x2 + w2 and x2 < x1 + w1 and y1 < y2 + h2 and y2 < y1 + h1)
 
 lines = ["-- GENERATED by db/generate_seed.py. Do not edit by hand; change the script and run it again.",
          "-- Safe to run many times: positions are updated, but a slot's status is never changed.",
-         "INSERT INTO slots (label, size_class, row_name, x, y, width, height, access_x, access_y, status) VALUES"]
-rows = []
-for s in slots:
-    status = "occupied" if s["label"] in parked else "free"
-    rows.append("  ('{label}', {cls}, '{row}', {x:.2f}, {y:.2f}, {w:.2f}, {h:.2f}, {ax:.2f}, {ay:.2f}, '{st}')".format(st=status, **s))
-lines.append(",\n".join(rows))
+         "INSERT INTO slots (label, size_class, x, y, width, height, access_x, access_y) VALUES"]
+lines.append(",\n".join(
+    f"  ('{label}', {size}, {x:.2f}, {y:.2f}, {w:.2f}, {h:.2f}, {access[0]:.2f}, {access[1]:.2f})"
+    for label, size, x, y, w, h, access in slots
+))
 lines.append("""ON CONFLICT (lot_id, label) DO UPDATE SET
-  size_class = EXCLUDED.size_class, row_name = EXCLUDED.row_name,
-  x = EXCLUDED.x, y = EXCLUDED.y, width = EXCLUDED.width, height = EXCLUDED.height,
+  size_class = EXCLUDED.size_class, x = EXCLUDED.x, y = EXCLUDED.y,
+  width = EXCLUDED.width, height = EXCLUDED.height,
   access_x = EXCLUDED.access_x, access_y = EXCLUDED.access_y;""")
 
 with open("db/seed.sql", "w") as f:
     f.write("\n".join(lines) + "\n")
-print(len(slots), "slots written;", len(parked), "start occupied")
+print(len(slots), "slots written")

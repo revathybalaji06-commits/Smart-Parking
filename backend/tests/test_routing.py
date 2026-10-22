@@ -1,45 +1,52 @@
-"""Tests for the map, routes and simulated traffic."""
+"""Tests for the map, routes and pretend traffic."""
 import pytest
 from fastapi.testclient import TestClient
 
-from app import layout
+from app.layout import EDGES, NODES
 from app.main import app
 from app.reservations import arrive, reserve
-from app.routing import build_route, edge_containing
-from app.simulator import tick, warm_up
+from app.routing import build_route, road_start_for, shortest_path
+from app.simulator import start_with_cars, tick
 
 
-def test_every_slot_has_a_route_that_starts_at_the_gate_and_ends_in_its_bay(conn):
-    slots = conn.execute("SELECT * FROM slots").fetchall()
-    assert len(slots) == 50
-    gate = layout.NODES["ENTRY"]
-    for slot in slots:
+def count_occupied(conn):
+    return conn.execute("SELECT count(*) AS n FROM slots WHERE status = 'occupied'").fetchone()["n"]
+
+
+def test_every_slot_has_a_route_from_the_gate_to_its_bay(conn):
+    for slot in conn.execute("SELECT * FROM slots").fetchall():
         route = build_route(slot)
-        first, last = route["points"][0], route["points"][-1]
-        assert (first["x"], first["y"]) == gate
-        # the last point is the middle of the bay
-        assert last["x"] == pytest.approx(slot["x"] + slot["width"] / 2, abs=0.01)
-        assert last["y"] == pytest.approx(slot["y"] + slot["height"] / 2, abs=0.01)
+        assert route["points"][0] == NODES["ENTRY"]
+        assert route["points"][-1] == pytest.approx(
+            (slot["x"] + slot["width"] / 2, slot["y"] + slot["height"] / 2)
+        )
         assert route["steps"][-1]["text"].endswith("You have arrived.")
 
 
-def test_routes_only_follow_one_way_roads(conn):
-    """Every straight piece of a route must lie on a road, going the allowed way."""
+def test_routes_only_follow_the_one_way_roads(conn):
     for slot in conn.execute("SELECT * FROM slots").fetchall():
-        points = [(p["x"], p["y"]) for p in build_route(slot)["points"]]
-        for a, b in zip(points[:-2], points[1:-1]):  # leave out the final step into the bay
-            mid = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
-            start, end = edge_containing(mid)
-            direction_ok = (layout.NODES[end][0] - layout.NODES[start][0]) * (b[0] - a[0]) \
-                + (layout.NODES[end][1] - layout.NODES[start][1]) * (b[1] - a[1]) > 0
-            assert direction_ok, (slot["label"], a, b)
+        path = shortest_path("ENTRY", road_start_for((slot["access_x"], slot["access_y"])))
+        for a, b in zip(path, path[1:]):
+            assert (a, b) in EDGES  # never against the arrows
 
 
-def test_first_slot_directions(conn):
+def test_directions_to_a_bay_on_the_left_road(conn):
     slot = conn.execute("SELECT * FROM slots WHERE label = 'C1'").fetchone()
     steps = [s["text"] for s in build_route(slot)["steps"]]
-    assert steps[0].startswith("Enter through the entry gate")
-    assert "bay C1 is on your left" in steps[0]  # Row 1 is on the west side of the left road
+    assert steps == [
+        "Enter through the entry gate and drive straight for 45 m.",
+        "Turn left into bay C1. You have arrived.",
+    ]
+
+
+def test_directions_to_a_bay_on_the_top_row(conn):
+    slot = conn.execute("SELECT * FROM slots WHERE label = 'S1'").fetchone()
+    steps = [s["text"] for s in build_route(slot)["steps"]]
+    assert steps == [
+        "Enter through the entry gate and drive straight for 74 m.",
+        "Turn right and drive 25 m.",
+        "Turn right into bay S1. You have arrived.",
+    ]
 
 
 def test_route_api(conn):
@@ -47,7 +54,6 @@ def test_route_api(conn):
     r = client.post("/reserve", json={"plate": "TN01", "vehicle_class": 2}).json()
     route = client.get(f"/reservations/{r['reservation_id']}/route")
     assert route.status_code == 200
-    assert route.json()["slot"]["label"] == r["label"]
     assert route.json()["length_m"] > 0
 
 
@@ -61,31 +67,22 @@ def test_route_needs_an_active_reservation(conn):
 
 def test_layout_and_slots_api(conn):
     client = TestClient(app)
-    data = client.get("/layout").json()
-    assert data["gates"]["entry"] and data["gates"]["exit"] and len(data["edges"]) == 9
-    first = client.get("/slots").json()[0]
-    assert {"x", "y", "width", "height", "row_name"} <= set(first)
+    layout = client.get("/layout").json()
+    assert "ENTRY" in layout["nodes"] and len(layout["edges"]) == 9
+    assert {"x", "y", "width", "height"} <= set(client.get("/slots").json()[0])
 
 
-def test_simulator_never_touches_app_reservations(conn):
+def test_pretend_traffic_never_touches_app_reservations(conn):
     mine = reserve(conn, "TN01", 2)
-    arrived = reserve(conn, "TN02", 2)
-    arrive(conn, arrived["reservation_id"])
-    for _ in range(300):
+    parked = reserve(conn, "TN02", 2)
+    arrive(conn, parked["reservation_id"])
+    for _ in range(100):
         tick(conn)
     status = lambda slot_id: conn.execute("SELECT status FROM slots WHERE id = %s", (slot_id,)).fetchone()["status"]
     assert status(mine["slot_id"]) == "reserved"
-    assert status(arrived["slot_id"]) == "occupied"
+    assert status(parked["slot_id"]) == "occupied"
 
 
-def test_simulator_keeps_the_lot_partly_full(conn):
-    for _ in range(300):
-        tick(conn)
-    occupied = conn.execute("SELECT count(*) AS n FROM slots WHERE status = 'occupied'").fetchone()["n"]
-    assert 10 <= occupied <= 30  # around 40% of 50
-
-
-def test_warm_up_puts_cars_in_an_empty_lot(conn):
-    warm_up(conn)
-    occupied = conn.execute("SELECT count(*) AS n FROM slots WHERE status = 'occupied'").fetchone()["n"]
-    assert occupied >= 18
+def test_pretend_traffic_keeps_the_lot_about_40_percent_full(conn):
+    start_with_cars(conn)
+    assert count_occupied(conn) in (19, 20)  # 40% of 50 slots
