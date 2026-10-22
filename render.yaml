@@ -1,0 +1,16 @@
+# Render "Blueprint": creates the website + its PostgreSQL database in one go.
+databases:
+  - name: smart-parking-db
+    plan: free
+
+services:
+  - type: web
+    name: smart-parking
+    runtime: docker
+    plan: free
+    healthCheckPath: /availability
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: smart-parking-db
+          property: connectionString

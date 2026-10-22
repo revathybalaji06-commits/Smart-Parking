@@ -1,14 +1,25 @@
 # frontend
 
-The driver-facing web app, built with React. **Owners: Thomas and Kailesh.** This folder is intentionally empty until the app is created.
+The driver-facing web app, built with React and Vite. **Owners: Thomas and Kailesh.**
 
-## What it should do
-- Let a driver pick their vehicle class (Compact, Sedan, SUV, Full-Size) and reserve a slot.
-- Show the assigned slot and live availability per size class.
-- Show a map of the lot with the assigned slot highlighted.
-- Show clear messages for the "lot full" and "no valid slot" cases.
+| File             | What it does |
+|------------------|--------------|
+| `src/App.jsx`    | The whole page: availability cards, reserve form, your reservation (arrive / leave / cancel), and the map of the lot. Refreshes every 5 seconds. |
+| `src/api.js`     | One small function per backend URL in [`docs/api.md`](../docs/api.md). |
+| `src/App.css`    | The styles. |
+| `src/main.jsx`   | Starts React. |
+| `vite.config.js` | While developing, forwards API calls to the backend on port 8000. |
 
-## How it connects to the backend
-- It talks to the backend only through the HTTP API described in [`../docs/api.md`](../docs/api.md).
-- Keep the API address in one environment variable (for example `VITE_API_URL`), so switching from mock data to the real backend is a one-line change.
-- Until the backend is ready, use mock data that follows the same response shapes.
+## Run while developing
+Start the backend first (see the main README), then:
+
+```bash
+cd frontend
+npm install
+npm run dev        # opens http://localhost:5173
+```
+
+To point at a different backend, set `VITE_API_URL` (for example `VITE_API_URL=https://my-backend.example.com npm run dev`). If it is not set, the app calls the same server that served the page.
+
+## Build
+`npm run build` creates the `dist/` folder. The backend serves it automatically, so the whole app runs from one server.
