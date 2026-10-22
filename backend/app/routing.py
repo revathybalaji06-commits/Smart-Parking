@@ -1,135 +1,97 @@
-"""Finds the exact route from the entry gate to a slot, and writes the directions.
+"""Finds the route from the entry gate to a slot and writes the directions.
 
-How it works:
 1. The roads are a small graph: junctions (NODES) joined by one-way pieces (EDGES).
-2. Dijkstra's algorithm finds the shortest way from ENTRY to the road piece in
-   front of the slot. One-way pieces mean we can never drive the wrong way.
+2. We find the shortest way from ENTRY to the road piece in front of the slot.
+   One-way pieces mean we can never drive the wrong way.
 3. The last bit goes from the road straight into the bay.
-4. We turn the list of points into sentences: "turn left", "drive 24 m", ...
+4. We turn the points into sentences: "Turn right and drive 33 m".
 """
-import heapq
 import math
 
 from .layout import EDGES, NODES
 
 
-def distance(a, b):
+def length(a, b):
     return math.hypot(b[0] - a[0], b[1] - a[1])
 
 
 def shortest_path(start, goal):
-    """Dijkstra: the list of junction names to follow from start to goal."""
-    best = {start: 0}
+    """The shortest way along the one-way roads, as a list of junction names.
+
+    We go over all the road pieces again and again, and whenever a piece gives a
+    shorter way to a junction we remember it. After a few rounds nothing improves.
+    """
+    best = {name: math.inf for name in NODES}  # shortest distance found so far
+    best[start] = 0
     came_from = {}
-    queue = [(0, start)]
-    while queue:
-        so_far, node = heapq.heappop(queue)
-        if node == goal:
-            break
-        if so_far > best.get(node, float("inf")):
-            continue
+    for _ in NODES:
         for a, b in EDGES:
-            if a == node:
-                total = so_far + distance(NODES[a], NODES[b])
-                if total < best.get(b, float("inf")):
-                    best[b] = total
-                    came_from[b] = a
-                    heapq.heappush(queue, (total, b))
+            distance = best[a] + length(NODES[a], NODES[b])
+            if distance < best[b]:
+                best[b] = distance
+                came_from[b] = a
+
     path = [goal]
     while path[-1] != start:
         path.append(came_from[path[-1]])
     return path[::-1]
 
 
-def edge_containing(point):
-    """Which one-way road piece is this point on? Returns (from_junction, to_junction)."""
-    px, py = point
+def road_start_for(point):
+    """The junction at the start of the road piece that this point is on."""
+    x, y = point
     for a, b in EDGES:
         (x1, y1), (x2, y2) = NODES[a], NODES[b]
-        on_line = abs(px - x1) < 0.01 if x1 == x2 else abs(py - y1) < 0.01
-        within = min(x1, x2) - 0.01 <= px <= max(x1, x2) + 0.01 and \
-            min(y1, y2) - 0.01 <= py <= max(y1, y2) + 0.01
-        if on_line and within:
-            return a, b
+        if min(x1, x2) - 0.01 <= x <= max(x1, x2) + 0.01 and min(y1, y2) - 0.01 <= y <= max(y1, y2) + 0.01:
+            return a
     raise ValueError("The slot is not next to a road")
 
 
-def route_points(slot):
-    """The points to drive through: gate, junctions, the spot on the road, the bay."""
-    access = (slot["access_x"], slot["access_y"])
-    bay_centre = (slot["x"] + slot["width"] / 2, slot["y"] + slot["height"] / 2)
-    road_start, _ = edge_containing(access)
-
-    points = [NODES[n] for n in shortest_path("ENTRY", road_start)]
-    for p in (access, bay_centre):
-        if distance(points[-1], p) > 0.01:
-            points.append(p)
-    return remove_straight_points(points)
+def direction(a, b):
+    """Which way are we going? (1, 0) right, (-1, 0) left, (0, 1) down, (0, -1) up."""
+    return ((b[0] > a[0]) - (b[0] < a[0]), (b[1] > a[1]) - (b[1] < a[1]))
 
 
-def remove_straight_points(points):
-    """Drop points where the route keeps going straight, so "straight" is one step."""
-    kept = [points[0]]
-    for i in range(1, len(points) - 1):
-        before = heading(kept[-1], points[i])
-        after = heading(points[i], points[i + 1])
-        if abs(before[0] * after[1] - before[1] * after[0]) > 0.01:  # it turns here
-            kept.append(points[i])
-    kept.append(points[-1])
-    return kept
-
-
-def heading(a, b):
-    length = distance(a, b)
-    return ((b[0] - a[0]) / length, (b[1] - a[1]) / length)
-
-
-def turn_word(h1, h2):
-    """Left or right? On the screen y points DOWN, so a positive cross product is a right turn."""
-    cross = h1[0] * h2[1] - h1[1] * h2[0]
-    return "right" if cross > 0 else "left"
+def turn(before, after):
+    """'left' or 'right'. On the screen y points DOWN, so a positive cross product is a right turn."""
+    return "right" if before[0] * after[1] - before[1] * after[0] > 0 else "left"
 
 
 def build_route(slot):
-    """The full answer for the frontend: points, total length and step-by-step text."""
-    points = route_points(slot)
+    """The route for the frontend: the points to draw and the directions to read."""
+    access = (slot["access_x"], slot["access_y"])  # the spot on the road in front of the bay
+    bay = (slot["x"] + slot["width"] / 2, slot["y"] + slot["height"] / 2)
+    points = [NODES[name] for name in shortest_path("ENTRY", road_start_for(access))]
+    points += [access, bay]
 
-    # Cumulative distance along the route at every point (the dot uses this to move)
-    along = [0.0]
+    # distances[i] = how far along the route point i is (the moving dot uses this)
+    distances = [0.0]
     for i in range(1, len(points)):
-        along.append(along[-1] + distance(points[i - 1], points[i]))
+        distances.append(distances[-1] + length(points[i - 1], points[i]))
+
+    # A "leg" is one straight stretch. Pieces that keep the same direction join into one leg.
+    legs = []  # each leg: [direction, first point, last point]
+    for i in range(1, len(points)):
+        way = direction(points[i - 1], points[i])
+        if legs and legs[-1][0] == way:
+            legs[-1][2] = i
+        else:
+            legs.append([way, i - 1, i])
 
     steps = []
-    for i in range(1, len(points)):
-        length = round(distance(points[i - 1], points[i]))
-        h = heading(points[i - 1], points[i])
-        is_last = i == len(points) - 1
-
-        if i == 1:
-            text = f"Enter through the entry gate and drive straight for {length} m."
-            if is_last:
-                text = "Enter through the entry gate."
+    for n, (way, first, last) in enumerate(legs):
+        metres = round(distances[last] - distances[first])
+        if n == 0:
+            text = f"Enter through the entry gate and drive straight for {metres} m."
+        elif n == len(legs) - 1:
+            text = f"Turn {turn(legs[n - 1][0], way)} into bay {slot['label']}. You have arrived."
         else:
-            previous = heading(points[i - 2], points[i - 1])
-            side = turn_word(previous, h)
-            if is_last:
-                text = (f"Turn {side} into bay {slot['label']} ({slot['row_name']}). "
-                        f"You have arrived.")
-            else:
-                text = f"Turn {side} and drive {length} m."
-
-        # the last drive along the road ends in front of the bay: say which side it is on
-        if i == len(points) - 2 and len(points) > 2:
-            into_bay = heading(points[i], points[i + 1])
-            text = text.rstrip(".") + f", then bay {slot['label']} is on your {turn_word(h, into_bay)}."
-
-        steps.append({"text": text, "point_index": i, "distance": along[i]})
+            text = f"Turn {turn(legs[n - 1][0], way)} and drive {metres} m."
+        steps.append({"text": text, "distance": round(distances[last], 2)})
 
     return {
-        "slot": {"id": slot["id"], "label": slot["label"], "row_name": slot["row_name"],
-                 "size_class": slot["size_class"]},
-        "points": [{"x": round(x, 2), "y": round(y, 2)} for x, y in points],
-        "distances": [round(d, 2) for d in along],
-        "length_m": round(along[-1]),
+        "points": points,
+        "distances": [round(d, 2) for d in distances],
+        "length_m": round(distances[-1]),
         "steps": steps,
     }

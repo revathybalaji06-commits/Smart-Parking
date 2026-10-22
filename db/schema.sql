@@ -10,7 +10,6 @@ CREATE TABLE IF NOT EXISTS slots (
 
 -- Where each slot is drawn on the map and where the road is in front of it.
 -- ADD COLUMN IF NOT EXISTS also upgrades a database made before the map existed.
-ALTER TABLE slots ADD COLUMN IF NOT EXISTS row_name  TEXT;
 ALTER TABLE slots ADD COLUMN IF NOT EXISTS x         REAL;   -- top-left corner of the bay
 ALTER TABLE slots ADD COLUMN IF NOT EXISTS y         REAL;
 ALTER TABLE slots ADD COLUMN IF NOT EXISTS width     REAL;

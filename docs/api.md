@@ -1,9 +1,9 @@
-# API Contract (v0.3)
+# API Contract (v0.4)
 
 This is the source of truth between the backend team (Kamalesh, Sachin) and the frontend team (Thomas, Kailesh).
 Change it only through a PR that both teams approve.
 
-- Base URL: configurable (`VITE_API_URL` on the frontend). Local default: `http://localhost:8000`.
+- Base URL: the same server that serves the website. Local default: `http://localhost:8000`. While developing the frontend, `npm run dev` forwards these URLs to the backend.
 - Format: JSON over HTTP. Timestamps are ISO 8601 UTC.
 - Vehicle / size classes: `1` Compact, `2` Sedan, `3` SUV, `4` Full-Size.
 - Slot status: `free`, `reserved`, `occupied`.
@@ -49,7 +49,7 @@ All slots, for drawing the lot map.
 ```json
 [
   { "id": 1, "label": "C1", "size_class": 1, "status": "free",
-    "row_name": "Row 1", "x": 5.9, "y": 40.0, "width": 4.6, "height": 2.4 }
+    "x": 5.9, "y": 40.0, "width": 4.6, "height": 2.4 }
 ]
 ```
 
@@ -57,19 +57,19 @@ All slots, for drawing the lot map.
 
 ## GET /layout
 
-Everything needed to draw the lot: size, one-way roads, gates, trees and buildings.
+Everything needed to draw the lot: size, junctions, one-way road pieces, trees and buildings.
 
 ```json
 {
   "width": 90, "height": 92, "road_width": 7,
-  "edges": [ { "from": "ENTRY", "to": "J2", "x1": 14, "y1": 86, "x2": 14, "y2": 60 } ],
-  "gates": { "entry": { "x": 14, "y": 86 }, "exit": { "x": 76, "y": 86 } },
-  "trees": [ { "x": 25, "y": 24, "r": 1.8 } ],
-  "buildings": [ { "name": "Security", "x": 38, "y": 76, "w": 14, "h": 8 } ]
+  "nodes": { "ENTRY": [14, 86], "J2": [14, 60], "EXIT": [76, 86] },
+  "edges": [ ["ENTRY", "J2"], ["J2", "J1"] ],
+  "trees": [ [25, 24, 1.8] ],
+  "buildings": [ ["Security", 38, 76, 14, 8] ]
 }
 ```
 
-Each edge is a one-way road piece, driven from `(x1, y1)` to `(x2, y2)`. Cars drive on the left.
+`nodes` are junctions, shown here shortened to three. Each edge `[from, to]` is a one-way road piece: cars drive from the first junction to the second (cars drive on the left). A tree is `[x, y, radius]`, a building is `[name, x, y, width, height]`.
 
 ## POST /reserve
 
@@ -102,17 +102,18 @@ The exact route from the entry gate to the reserved bay, following the one-way r
 
 ```json
 {
-  "slot": { "id": 14, "label": "S4", "row_name": "Row 2", "size_class": 2 },
-  "points": [ { "x": 14, "y": 86 }, { "x": 14, "y": 12 }, { "x": 47.45, "y": 12 }, { "x": 47.45, "y": 18 } ],
-  "distances": [ 0, 74, 107.45, 113.45 ],
+  "points": [[14, 86], [14, 12], [47.45, 12], [47.45, 18]],
+  "distances": [0, 74, 107.45, 113.45],
   "length_m": 113,
   "steps": [
-    { "text": "Enter through the entry gate and drive straight for 74 m.", "point_index": 1, "distance": 74 }
+    { "text": "Enter through the entry gate and drive straight for 74 m.", "distance": 74 },
+    { "text": "Turn right and drive 33 m.", "distance": 107.45 },
+    { "text": "Turn right into bay S4. You have arrived.", "distance": 113.45 }
   ]
 }
 ```
 
-`points` is the line to draw. `distances[i]` is how far along the route point `i` is, so a moving dot can be placed anywhere on it. Each step ends at `points[point_index]`, `distance` metres from the gate.
+`points` is the line to draw. `distances[i]` is how far along the route point `i` is, so a moving dot can be placed anywhere on it. Each step ends `distance` metres from the gate.
 
 ## POST /reservations/{id}/arrive
 

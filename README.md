@@ -52,7 +52,7 @@ Before searching, the driver says what class of vehicle they are parking.
 Each reservation is tied to one slot ID, not a general zone. Once the size match succeeds, the driver is guided directly to that specific space:
 
 - The lot is a realistic campus car park: an entry gate and an exit gate, **one-way roads** (cars drive on the left, as in India), rows of bays of different sizes at different places, trees, a security cabin, and cars already parked.
-- The app draws the **exact route** from the entry gate to the reserved bay, following the one-way roads (shortest path with Dijkstra's algorithm), with step-by-step directions such as "Turn right and drive 33 m, then bay S4 is on your right".
+- The app draws the **exact route** from the entry gate to the reserved bay, following the one-way roads (shortest path), with step-by-step directions such as "Turn right and drive 33 m", then "Turn right into bay S4".
 - A **moving dot** travels along the route (Start guidance, Pause, Next step, Replay). GPS does not work well inside a car park, so the dot is animated.
 - Other cars arrive and leave on their own to keep the lot about 40% full. This simulates entrance sensors.
 

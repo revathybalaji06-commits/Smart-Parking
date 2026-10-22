@@ -1,50 +1,34 @@
 """The web API. Each function below is one URL from docs/api.md."""
 import asyncio
-import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI
 from fastapi.exceptions import RequestValidationError
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import layout, routing, simulator
 from . import reservations as parking
+from . import routing, simulator
 from .db import get_conn, setup_database
+from .layout import LAYOUT
 
 
 @asynccontextmanager
 async def lifespan(app):
-    # Runs once when the server starts: make sure the tables and slots exist
+    # Runs once when the server starts: make sure the tables and slots exist,
+    # put the first cars in the lot, and start the pretend traffic.
     conn = get_conn()
     setup_database(conn)
+    simulator.start_with_cars(conn)
     conn.close()
-
-    # Pretend other cars arrive and leave (set SIMULATE_TRAFFIC=0 to turn off)
-    background = None
-    if os.environ.get("SIMULATE_TRAFFIC", "1") == "1":
-        conn = get_conn()
-        simulator.warm_up(conn)
-        conn.close()
-        background = asyncio.create_task(simulator.run_forever())
+    traffic = asyncio.create_task(simulator.run_forever())
     yield
-    if background:
-        background.cancel()
+    traffic.cancel()
 
 
 app = FastAPI(title="Smart Parking API", lifespan=lifespan)
-
-# CORS: lets the React app (on another address while developing) call this API
-origins = os.environ.get("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins.split(","),
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 
 def get_db():
@@ -60,16 +44,14 @@ def get_db():
 @app.exception_handler(parking.ParkingError)
 def handle_parking_error(request, error):
     return JSONResponse(
-        status_code=error.status,
-        content={"error": error.code, "message": error.message},
+        status_code=error.status, content={"error": error.code, "message": error.message}
     )
 
 
 @app.exception_handler(RequestValidationError)
 def handle_bad_request(request, error):
     return JSONResponse(
-        status_code=400,
-        content={"error": "invalid_request", "message": "Missing or wrong field."},
+        status_code=400, content={"error": "invalid_request", "message": "Missing or wrong field."}
     )
 
 
@@ -91,9 +73,8 @@ def slots(conn=Depends(get_db)):
 
 
 @app.get("/layout")
-def get_layout():
-    """Roads, gates and decorations, so the frontend can draw the lot."""
-    return layout.get_layout()
+def layout():
+    return LAYOUT
 
 
 @app.post("/reserve", status_code=201)
@@ -108,9 +89,7 @@ def get_reservation(reservation_id: int, conn=Depends(get_db)):
 
 @app.get("/reservations/{reservation_id}/route")
 def get_route(reservation_id: int, conn=Depends(get_db)):
-    """The exact route from the entry gate to the reserved slot, with directions."""
-    slot = parking.get_slot_for_route(conn, reservation_id)
-    return routing.build_route(slot)
+    return routing.build_route(parking.get_slot_for_route(conn, reservation_id))
 
 
 @app.post("/reservations/{reservation_id}/arrive")
