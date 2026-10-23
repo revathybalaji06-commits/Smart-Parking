@@ -1,30 +1,60 @@
-// Talks to the backend: one small function for each URL in docs/api.md.
-async function call(path, method = "GET", body) {
+// This file contains the browser's requests to the backend API.
+
+async function request(path, method = "GET", body = null) {
   let response;
+
   try {
     response = await fetch(path, {
       method,
       headers: { "Content-Type": "application/json" },
-      body: body ? JSON.stringify(body) : undefined,
+      body: body === null ? undefined : JSON.stringify(body),
     });
-  } catch (e) {
-    // no internet, or the server is asleep
+  } catch {
     throw new Error("Cannot reach the server. Check your internet connection.");
   }
-  const data = await response.json();
+
+  const result = await response.json();
   if (!response.ok) {
-    throw new Error(data.message || "Something went wrong");
+    throw new Error(result.message || "Something went wrong");
   }
-  return data;
+  return result;
 }
 
-export const getAvailability = () => call("/availability");
-export const getSlots = () => call("/slots");
-export const getLayout = () => call("/layout");
-export const getReservation = (id) => call(`/reservations/${id}`);
-export const getRoute = (id) => call(`/reservations/${id}/route`);
-export const reserve = (plate, vehicleClass) =>
-  call("/reserve", "POST", { plate, vehicle_class: vehicleClass });
-export const arrive = (id) => call(`/reservations/${id}/arrive`, "POST");
-export const depart = (id) => call(`/reservations/${id}/depart`, "POST");
-export const cancel = (id) => call(`/reservations/${id}/cancel`, "POST");
+export function getAvailability() {
+  return request("/availability");
+}
+
+export function getSlots() {
+  return request("/slots");
+}
+
+export function getLayout() {
+  return request("/layout");
+}
+
+export function getReservation(id) {
+  return request(`/reservations/${id}`);
+}
+
+export function getRoute(id) {
+  return request(`/reservations/${id}/route`);
+}
+
+export function reserve(plate, vehicleClass) {
+  return request("/reserve", "POST", {
+    plate,
+    vehicle_class: vehicleClass,
+  });
+}
+
+export function arrive(id) {
+  return request(`/reservations/${id}/arrive`, "POST");
+}
+
+export function depart(id) {
+  return request(`/reservations/${id}/depart`, "POST");
+}
+
+export function cancel(id) {
+  return request(`/reservations/${id}/cancel`, "POST");
+}
