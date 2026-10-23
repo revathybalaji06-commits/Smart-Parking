@@ -1,39 +1,48 @@
 import { useState } from "react";
 
-const CLASSES = [
-  { id: 1, name: "Compact", note: "small cars, hatchbacks" },
-  { id: 2, name: "Sedan", note: "mid-size sedans, coupes" },
-  { id: 3, name: "SUV", note: "SUVs, minivans" },
-  { id: 4, name: "Full-Size", note: "large and luxury cars" },
+const VEHICLE_CLASSES = [
+  { number: 1, name: "Compact", examples: "small cars, hatchbacks" },
+  { number: 2, name: "Sedan", examples: "mid-size sedans, coupes" },
+  { number: 3, name: "SUV", examples: "SUVs, minivans" },
+  { number: 4, name: "Full-Size", examples: "large and luxury cars" },
 ];
 
-// The form where the driver enters the plate and the vehicle size
 export default function ReserveForm({ onReserve }) {
   const [plate, setPlate] = useState("");
   const [vehicleClass, setVehicleClass] = useState(2);
 
-  function handleSubmit(event) {
+  function submitForm(event) {
     event.preventDefault();
     onReserve(plate, vehicleClass);
   }
 
   return (
-    <form className="panel" onSubmit={handleSubmit}>
+    <form className="panel" onSubmit={submitForm}>
       <h2>Reserve a slot</h2>
+
       <label>
         Number plate
-        <input value={plate} onChange={(e) => setPlate(e.target.value)} placeholder="TN37AB1234" />
+        <input
+          value={plate}
+          onChange={(event) => setPlate(event.target.value)}
+          placeholder="TN37AB1234"
+        />
       </label>
+
       <label>
         Vehicle size
-        <select value={vehicleClass} onChange={(e) => setVehicleClass(Number(e.target.value))}>
-          {CLASSES.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name} ({c.note})
+        <select
+          value={vehicleClass}
+          onChange={(event) => setVehicleClass(Number(event.target.value))}
+        >
+          {VEHICLE_CLASSES.map((vehicle) => (
+            <option key={vehicle.number} value={vehicle.number}>
+              {vehicle.name} ({vehicle.examples})
             </option>
           ))}
         </select>
       </label>
+
       <button type="submit">Reserve</button>
     </form>
   );

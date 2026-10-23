@@ -1,65 +1,92 @@
 import { useEffect, useState } from "react";
 
-// Where is the dot after travelling `distance` metres along the route?
-function positionAt(route, distance) {
+// Find the map position that is `travelled` metres along the route.
+function getPosition(route, travelled) {
   const { points, distances } = route;
-  for (let i = 1; i < points.length; i++) {
-    if (distance <= distances[i]) {
-      const part = (distance - distances[i - 1]) / (distances[i] - distances[i - 1]);
-      return [
-        points[i - 1][0] + (points[i][0] - points[i - 1][0]) * part,
-        points[i - 1][1] + (points[i][1] - points[i - 1][1]) * part,
-      ];
+
+  for (let index = 1; index < points.length; index++) {
+    if (travelled <= distances[index]) {
+      const startDistance = distances[index - 1];
+      const endDistance = distances[index];
+      const distanceInSegment = travelled - startDistance;
+      const segmentLength = endDistance - startDistance;
+      const fraction = distanceInSegment / segmentLength;
+
+      const startPoint = points[index - 1];
+      const endPoint = points[index];
+      const x = startPoint[0] + (endPoint[0] - startPoint[0]) * fraction;
+      const y = startPoint[1] + (endPoint[1] - startPoint[1]) * fraction;
+      return [x, y];
     }
   }
+
   return points[points.length - 1];
 }
 
-// The moving dot and the step-by-step directions. `route` is null when there is no route.
 export default function useGuidance(route) {
-  const [progress, setProgress] = useState(0); // metres the dot has travelled
-  const [playing, setPlaying] = useState(false);
-  const total = route ? route.distances[route.distances.length - 1] : 0;
+  const [travelled, setTravelled] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+
+  const totalDistance = route
+    ? route.distances[route.distances.length - 1]
+    : 0;
   const steps = route ? route.steps : [];
 
-  // A new route: start again at the gate
+  // When the driver receives a new route, start at the gate.
   useEffect(() => {
-    setProgress(0);
-    setPlaying(false);
+    setTravelled(0);
+    setIsPlaying(false);
   }, [route]);
 
-  // While playing, move the dot a little every 40 ms (about 40 km/h)
+  // Move the dot along the route while guidance is playing.
   useEffect(() => {
-    if (!playing) return;
-    const timer = setInterval(() => setProgress((p) => Math.min(p + 0.45, total)), 40);
+    if (!isPlaying) return undefined;
+
+    const timer = setInterval(() => {
+      setTravelled((distance) => Math.min(distance + 0.45, totalDistance));
+    }, 40);
+
     return () => clearInterval(timer);
-  }, [playing, total]);
+  }, [isPlaying, totalDistance]);
 
-  // Stop at the end
+  // Stop the animation when the dot reaches the bay.
   useEffect(() => {
-    if (playing && progress >= total) setPlaying(false);
-  }, [progress]);
+    if (isPlaying && travelled >= totalDistance) {
+      setIsPlaying(false);
+    }
+  }, [isPlaying, travelled, totalDistance]);
 
-  // The current step is the first one the dot has not finished yet
-  let stepIndex = steps.findIndex((step) => step.distance > progress + 0.01);
-  if (stepIndex === -1) stepIndex = steps.length - 1;
+  // The current direction is the first step whose end is still ahead.
+  let currentStep = steps.findIndex((step) => step.distance > travelled + 0.01);
+  if (currentStep === -1) {
+    currentStep = steps.length - 1;
+  }
+
+  function startOrPause() {
+    if (travelled >= totalDistance) {
+      setTravelled(0);
+    }
+    setIsPlaying(!isPlaying);
+  }
+
+  function nextStep() {
+    if (currentStep < 0) return;
+    setIsPlaying(false);
+    setTravelled(steps[currentStep].distance);
+  }
+
+  function replay() {
+    setIsPlaying(false);
+    setTravelled(0);
+  }
 
   return {
     steps,
-    stepIndex,
-    playing,
-    dot: route ? positionAt(route, progress) : null,
-    startOrPause() {
-      if (progress >= total) setProgress(0);
-      setPlaying(!playing);
-    },
-    nextStep() {
-      setPlaying(false);
-      setProgress(steps[stepIndex].distance);
-    },
-    replay() {
-      setPlaying(false);
-      setProgress(0);
-    },
+    stepIndex: currentStep,
+    playing: isPlaying,
+    dot: route ? getPosition(route, travelled) : null,
+    startOrPause,
+    nextStep,
+    replay,
   };
 }
