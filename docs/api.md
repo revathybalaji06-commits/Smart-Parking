@@ -1,9 +1,9 @@
-# API Contract (v0.5)
+# API Contract (v0.6)
 
 This is the source of truth between the backend team (Kamalesh, Sachin) and the frontend team (Thomas, Kailesh).
 Change it only through a PR that both teams approve.
 
-- Base URL: the same server that serves the website. Local default: `http://localhost:8000`. While developing the frontend, `npm run dev` forwards these URLs to the backend.
+- Base URL: the same server that serves the website. Local default: `http://localhost:8000`.
 - Format: JSON over HTTP. Timestamps are ISO 8601 UTC.
 - Vehicle / size classes: `1` Compact, `2` Sedan, `3` SUV, `4` Full-Size.
 - Slot status: `free`, `reserved`, `occupied`.
@@ -72,6 +72,31 @@ Everything needed to draw the lot: size, junctions, one-way road pieces, trees a
 
 `nodes` are junctions, shown here shortened to three. Each edge `[from, to]` is a one-way road piece: cars drive from the first junction to the second (cars drive on the left). A tree is `[x, y, radius]`, a building is `[name, x, y, width, height]`.
 
+## The reservation object
+
+`POST /reserve`, `GET /reservations/{id}`, and the arrive, depart and cancel calls all answer with the same object: the reservation together with its slot.
+
+```json
+{
+  "reservation_id": 42,
+  "plate": "TN37AB1234",
+  "vehicle_class": 2,
+  "status": "active",
+  "expires_at": "2026-10-02T10:30:00Z",
+  "slot_id": 14,
+  "label": "S4",
+  "size_class": 2,
+  "slot_status": "reserved",
+  "x": 46.1, "y": 15.5, "width": 2.7, "height": 5.0,
+  "access_x": 47.45, "access_y": 12.0
+}
+```
+
+- `status` (the reservation): `active`, `completed`, `expired`, `cancelled`.
+- `slot_status`: `reserved` while the driver is on the way, `occupied` once parked, `free` afterwards.
+- `expires_at` is `null` once the driver has arrived.
+- `access_x`, `access_y` is the spot on the road in front of the bay.
+
 ## POST /reserve
 
 Reserves the smallest free slot that fits the vehicle (class N or larger). If the vehicle's own class is full, the next larger class is used automatically. The slot is held for 15 minutes; an unclaimed hold expires and the slot is freed.
@@ -82,32 +107,24 @@ Request:
 { "plate": "TN37AB1234", "vehicle_class": 2 }
 ```
 
-Response `201`:
-
-```json
-{
-  "reservation_id": 42,
-  "slot_id": 14,
-  "label": "S4",
-  "size_class": 2,
-  "status": "active",
-  "expires_at": "2026-10-02T10:30:00Z"
-}
-```
+Response `201`: the reservation object.
 
 Errors: `400 invalid_request`, `409 already_reserved`, `409 lot_full`, `409 no_valid_slot`.
 
 The plate is stored without spaces or hyphens and in capitals (`tn 37 ab-1234` becomes `TN37AB1234`). It must be letters and digits only, at most 12. A plate can have only one active reservation at a time.
 
+## GET /reservations/{id}
+
+Response `200`: the reservation object. Error: `404 not_found`.
+
 ## GET /reservations/{id}/route
 
-The exact route from the entry gate to the reserved bay, following the one-way roads. Only for an `active` reservation (`409 invalid_state` otherwise).
+The exact route from the entry gate to the reserved bay, following the one-way roads.
 
 ```json
 {
-  "points": [[14, 86], [14, 12], [47.45, 12], [47.45, 18]],
-  "distances": [0, 74, 107.45, 113.45],
-  "length_m": 113,
+  "points": [[14, 86], [14, 60], [14, 36], [14, 12], [47.45, 12], [47.45, 18]],
+  "distances": [0, 26, 50, 74, 107.45, 113.45],
   "steps": [
     { "text": "Enter through the entry gate and drive straight for 74 m.", "distance": 74 },
     { "text": "Turn right and drive 33 m.", "distance": 107.45 },
@@ -116,59 +133,17 @@ The exact route from the entry gate to the reserved bay, following the one-way r
 }
 ```
 
-`points` is the line to draw. `distances[i]` is how far along the route point `i` is, so a moving dot can be placed anywhere on it. Each step ends `distance` metres from the gate.
+`points` is the line to draw. `distances[i]` is how far along the route point `i` is, so a moving dot can be placed anywhere on it; the last one is the total length. Each step ends `distance` metres from the gate.
 
-## POST /reservations/{id}/arrive
+## POST /reservations/{id}/arrive, /depart, /cancel
 
-Vehicle has reached its slot; the slot becomes `occupied` and the hold timer is cleared.
+| Call | Allowed when the slot is | Afterwards |
+|------|--------------------------|------------|
+| `arrive` | `reserved` | slot `occupied`, hold timer cleared |
+| `depart` | `occupied` | slot `free`, reservation `completed` |
+| `cancel` | `reserved` | slot `free`, reservation `cancelled` |
 
-Response `200`:
-
-```json
-{ "reservation_id": 42, "slot_id": 14, "slot_status": "occupied" }
-```
-
-Errors: `404 not_found`, `409 invalid_state` (e.g. reservation expired).
-
-## POST /reservations/{id}/depart
-
-Vehicle leaves; the reservation is `completed` and the slot becomes `free`.
-
-Response `200`:
-
-```json
-{ "reservation_id": 42, "slot_id": 14, "slot_status": "free", "status": "completed" }
-```
-
-Errors: `404 not_found`, `409 invalid_state`.
-
-## POST /reservations/{id}/cancel
-
-Driver cancels before arriving; the slot becomes `free`.
-
-Response `200`:
-
-```json
-{ "reservation_id": 42, "status": "cancelled" }
-```
-
-## GET /reservations/{id}
-
-```json
-{
-  "reservation_id": 42,
-  "plate": "TN37AB1234",
-  "vehicle_class": 2,
-  "slot_id": 14,
-  "label": "S4",
-  "status": "active",
-  "created_at": "2026-10-02T10:15:00Z",
-  "expires_at": "2026-10-02T10:30:00Z",
-  "ended_at": null
-}
-```
-
-Reservation `status`: `active`, `completed`, `expired`, `cancelled`.
+Response `200`: the reservation object. Errors: `404 not_found`, `409 invalid_state` (wrong order, or the hold expired).
 
 ## Decisions
 
@@ -176,5 +151,5 @@ Reservation `status`: `active`, `completed`, `expired`, `cancelled`.
 - Reservation hold time: **15 minutes** (`HOLD_MINUTES` in `backend/app/reservations.py`).
 - Authentication: none in the MVP.
 - Validation errors return `400 invalid_request` (not FastAPI's default 422).
-- Other cars: the server simulates cars arriving and leaving (stands in for entrance sensors) and keeps the lot about 40% full. It never changes a slot belonging to an app reservation. Set `SIMULATE_TRAFFIC=0` to turn it off.
+- Other cars: the server simulates cars arriving and leaving (stands in for entrance sensors) and keeps the lot about 40% full. It never changes a slot belonging to an app reservation.
 - Live interactive docs when the backend runs: `/docs`.

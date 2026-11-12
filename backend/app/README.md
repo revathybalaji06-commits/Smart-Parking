@@ -4,10 +4,9 @@ The API code of the Smart Parking backend (FastAPI + PostgreSQL).
 
 | File               | What it does |
 |--------------------|--------------|
-| `main.py`          | The web API. Each function is one URL from [`docs/api.md`](../../docs/api.md). Also sets up the error format and serves the built website. |
-| `reservations.py`  | All the parking logic: `reserve` (smallest free slot that fits), `arrive`, `depart`, `cancel`, expiry of unclaimed holds, availability. No web code. |
-| `layout.py`        | The map: one-way roads (junctions and road pieces), gates, trees, buildings. |
-| `routing.py`       | Finds the exact route from the entry gate to a slot (shortest path on the one-way road graph) and writes the directions: "turn right and drive 33 m". |
+| `main.py`          | The web API. Each function is one URL from [`docs/api.md`](../../docs/api.md). Also sets the error format and serves the web page. |
+| `reservations.py`  | All the parking rules: `reserve` (smallest free slot that fits), `arrive`, `depart`, `cancel`, expiry of unclaimed holds, availability. No web code. |
+| `routing.py`       | The map (junctions and one-way roads) and the route from the entry gate to a slot, with directions such as "Turn right and drive 33 m". |
 | `simulator.py`     | Pretends other cars arrive and leave, standing in for entrance sensors. |
 | `db.py`            | Opens the PostgreSQL connection (`DATABASE_URL`) and runs `db/schema.sql` + `db/seed.sql` when the server starts. |
 
