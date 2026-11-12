@@ -13,7 +13,8 @@ export default function App() {
   const [reservation, setReservation] = useState(null);
   const [route, setRoute] = useState(null);
   const [zoom, setZoom] = useState(1);
-  const [errorMessage, setErrorMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState(""); // a failed button action
+  const [loadError, setLoadError] = useState(""); // the server could not be reached
 
   // Download the current lot state and restore this browser's reservation.
   async function refreshPageData() {
@@ -23,26 +24,33 @@ export default function App() {
       const currentSlots = await api.getSlots();
       setSlots(currentSlots);
 
-      const savedReservationId = localStorage.getItem("reservationId");
-      if (!savedReservationId) {
-        setReservation(null);
-        return;
-      }
-
-      // A missing or finished reservation should not block a new booking.
-      const savedReservation = await api
-        .getReservation(savedReservationId)
-        .catch(() => null);
-      setReservation(savedReservation);
+      setReservation(await loadSavedReservation());
+      setLoadError(""); // everything loaded, so an old connection error is over
     } catch (error) {
-      setErrorMessage(error.message);
+      setLoadError(error.message);
     }
+  }
+
+  // This browser remembers its reservation number. Forget it once the
+  // reservation is finished or the server no longer has it.
+  async function loadSavedReservation() {
+    const savedReservationId = localStorage.getItem("reservationId");
+    if (!savedReservationId) return null;
+
+    try {
+      const savedReservation = await api.getReservation(savedReservationId);
+      if (savedReservation.status === "active") return savedReservation;
+    } catch (error) {
+      if (error.status !== 404) throw error; // a connection problem: keep the number
+    }
+    localStorage.removeItem("reservationId");
+    return null;
   }
 
   // Load data when the app opens, and refresh it every five seconds.
   useEffect(() => {
     refreshPageData();
-    api.getLayout().then(setLayout).catch((error) => setErrorMessage(error.message));
+    api.getLayout().then(setLayout).catch((error) => setLoadError(error.message));
 
     const refreshTimer = setInterval(refreshPageData, 5000);
     return () => clearInterval(refreshTimer);
@@ -91,7 +99,9 @@ export default function App() {
         Tell us your vehicle size and we reserve a slot that fits.
       </p>
 
-      {errorMessage && <div className="error">{errorMessage}</div>}
+      {(errorMessage || loadError) && (
+        <div className="error">{errorMessage || loadError}</div>
+      )}
 
       <h2>Available slots</h2>
       <Availability availability={availability} />

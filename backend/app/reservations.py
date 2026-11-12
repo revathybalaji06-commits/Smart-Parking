@@ -1,6 +1,7 @@
 """Parking rules: choosing a slot and changing a reservation's state."""
 
 HOLD_MINUTES = 15
+MAX_PLATE_LENGTH = 12
 CLASS_NAMES = {
     1: "Compact",
     2: "Sedan",
@@ -47,9 +48,16 @@ def set_slot_status(conn, slot_id, status):
 
 def reserve(conn, plate, vehicle_class):
     """Reserve the smallest free slot that is large enough for the vehicle."""
-    plate = plate.strip()
+    # "tn 37 ab 1234" and "TN37AB1234" are the same vehicle, so store one form.
+    plate = plate.replace(" ", "").replace("-", "").upper()
     if not plate:
         raise ParkingError("invalid_request", "Plate number is required.", 400)
+    if len(plate) > MAX_PLATE_LENGTH or not plate.isalnum():
+        raise ParkingError(
+            "invalid_request",
+            "Plate number must be letters and digits, at most 12.",
+            400,
+        )
     if vehicle_class < 1 or vehicle_class > 4:
         raise ParkingError("invalid_request", "Vehicle class must be 1 to 4.", 400)
 
@@ -57,6 +65,24 @@ def reserve(conn, plate, vehicle_class):
     # fails, PostgreSQL rolls the whole transaction back.
     with conn.transaction():
         free_expired_holds(conn)
+
+        # One vehicle can hold only one slot. The lock makes two requests for
+        # the same plate wait for each other, so both cannot pass this check.
+        conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (plate,))
+        already_reserved = conn.execute(
+            """
+            SELECT 1 FROM reservations
+            WHERE status = 'active'
+              AND upper(replace(replace(plate, ' ', ''), '-', '')) = %s
+            """,
+            (plate,),
+        ).fetchone()
+        if already_reserved:
+            raise ParkingError(
+                "already_reserved",
+                "This vehicle already has an active reservation.",
+                409,
+            )
 
         # >= means this slot fits the vehicle. Ordering by size picks the
         # smallest suitable slot. The row lock prevents double-booking.
