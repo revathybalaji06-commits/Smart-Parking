@@ -73,3 +73,29 @@ def test_availability_equation(conn):
     reserve(conn, "TN01", 2)
     lot = get_availability(conn)["lot"]
     assert lot == {"free": 49, "max": 50}  # Available = Max - Occupied
+
+
+def test_plate_is_cleaned_up(conn):
+    r = reserve(conn, " tn 37 ab-1234 ", 2)
+    saved = conn.execute(
+        "SELECT plate FROM reservations WHERE id = %s", (r["reservation_id"],)
+    ).fetchone()["plate"]
+    assert saved == "TN37AB1234"
+
+
+def test_bad_plates_are_rejected(conn):
+    for plate in ["TN37AB1234567", "TN37@AB", "---"]:
+        with pytest.raises(ParkingError) as error:
+            reserve(conn, plate, 1)
+        assert error.value.code == "invalid_request"
+
+
+def test_one_plate_cannot_hold_two_slots(conn):
+    first = reserve(conn, "TN01", 1)
+    with pytest.raises(ParkingError) as error:
+        reserve(conn, "tn 01", 2)  # the same vehicle, typed differently
+    assert error.value.code == "already_reserved"
+
+    # after cancelling (or leaving), the vehicle can reserve again
+    cancel(conn, first["reservation_id"])
+    reserve(conn, "TN01", 1)

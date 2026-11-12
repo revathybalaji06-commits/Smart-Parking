@@ -15,7 +15,9 @@ async function request(path, method = "GET", body = null) {
 
   const result = await response.json();
   if (!response.ok) {
-    throw new Error(result.message || "Something went wrong");
+    const error = new Error(result.message || "Something went wrong");
+    error.status = response.status; // for example 404 when a reservation is gone
+    throw error;
   }
   return result;
 }

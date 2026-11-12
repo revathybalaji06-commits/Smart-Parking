@@ -1,4 +1,4 @@
-# API Contract (v0.4)
+# API Contract (v0.5)
 
 This is the source of truth between the backend team (Kamalesh, Sachin) and the frontend team (Thomas, Kailesh).
 Change it only through a PR that both teams approve.
@@ -22,6 +22,7 @@ All errors use the same shape:
 | 404 | `not_found` | Reservation or slot does not exist |
 | 409 | `lot_full` | No free slot of any size |
 | 409 | `no_valid_slot` | Free slots exist, but all are smaller than the vehicle |
+| 409 | `already_reserved` | This number plate already has an active reservation |
 | 409 | `invalid_state` | Action not allowed in the current state (e.g. departing a cancelled reservation) |
 
 ## GET /availability
@@ -94,7 +95,9 @@ Response `201`:
 }
 ```
 
-Errors: `400 invalid_request`, `409 lot_full`, `409 no_valid_slot`.
+Errors: `400 invalid_request`, `409 already_reserved`, `409 lot_full`, `409 no_valid_slot`.
+
+The plate is stored without spaces or hyphens and in capitals (`tn 37 ab-1234` becomes `TN37AB1234`). It must be letters and digits only, at most 12. A plate can have only one active reservation at a time.
 
 ## GET /reservations/{id}/route
 
