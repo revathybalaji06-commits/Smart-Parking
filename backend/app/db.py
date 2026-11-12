@@ -1,23 +1,20 @@
-"""Connect to PostgreSQL and create the demo database tables."""
-
+"""Database connection and first-time setup."""
 import os
 from pathlib import Path
 
 import psycopg
 from psycopg.rows import dict_row
 
-DATABASE_FOLDER = Path(__file__).resolve().parents[2] / "db"
-DEFAULT_DATABASE_URL = "postgresql://localhost/smart_parking"
+DB_FOLDER = Path(__file__).resolve().parents[2] / "db"
 
 
 def get_conn():
-    """Open a PostgreSQL connection that returns rows as dictionaries."""
-    database_url = os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL)
-    return psycopg.connect(database_url, autocommit=True, row_factory=dict_row)
+    """Open a connection to PostgreSQL. Rows come back as dictionaries."""
+    url = os.environ.get("DATABASE_URL", "postgresql://localhost/smart_parking")
+    return psycopg.connect(url, autocommit=True, row_factory=dict_row)
 
 
 def setup_database(conn):
-    """Run the table definitions and add the demo parking spaces."""
-    for filename in ("schema.sql", "seed.sql"):
-        sql_file = DATABASE_FOLDER / filename
-        conn.execute(sql_file.read_text())
+    """Create the tables and the 50 demo slots. Safe to run many times."""
+    conn.execute((DB_FOLDER / "schema.sql").read_text())
+    conn.execute((DB_FOLDER / "seed.sql").read_text())

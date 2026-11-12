@@ -1,123 +1,111 @@
-"""Build a route from the entry gate to a particular parking bay."""
+"""The map of the lot, and the route from the entry gate to a slot.
 
+Units are roughly metres. x goes right, y goes DOWN. All roads are ONE-WAY
+(cars drive on the left, so the loop runs clockwise):
+
+    ENTRY -> up the left road -> along the top road -> down the right road -> EXIT
+    plus two cross aisles (y=36 and y=60) from the left road to the right road.
+"""
 import math
 
-from .layout import EDGES, NODES
+# Junctions: places where roads meet or end
+NODES = {
+    "ENTRY": (14, 86), "J2": (14, 60), "J1": (14, 36), "TL": (14, 12),
+    "TR": (76, 12), "R1": (76, 36), "R2": (76, 60), "EXIT": (76, 86),
+}
+
+# One-way road pieces: (from, to). A car can only drive in this direction.
+EDGES = [
+    ("ENTRY", "J2"), ("J2", "J1"), ("J1", "TL"),   # left road, going up
+    ("TL", "TR"),                                  # top road, going right
+    ("TR", "R1"), ("R1", "R2"), ("R2", "EXIT"),    # right road, going down
+    ("J1", "R1"), ("J2", "R2"),                    # the two cross aisles, going right
+]
+
+# Sent to the website so it can draw the lot.
+# Trees are (x, y, radius). Buildings are (name, x, y, width, height).
+LAYOUT = {
+    "width": 90, "height": 92, "road_width": 7, "nodes": NODES, "edges": EDGES,
+    "trees": [(25, 24, 1.8), (38, 24, 1.8), (53, 24, 1.8), (66, 24, 1.8), (24, 48, 1.8),
+              (40, 48, 1.8), (56, 48, 1.8), (68, 48, 1.8), (60, 66, 1.8), (66, 66, 1.8)],
+    "buildings": [("Academic Block", 22, 0.5, 46, 6), ("Security", 38, 76, 14, 8)],
+}
 
 
-def distance_between(point_a, point_b):
-    """Straight-line distance between two map points."""
-    dx = point_b[0] - point_a[0]
-    dy = point_b[1] - point_a[1]
-    return math.hypot(dx, dy)
+def length(a, b):
+    return math.hypot(b[0] - a[0], b[1] - a[1])
 
 
 def shortest_path(start, goal):
-    """Find the shortest directed road path using repeated distance updates.
+    """The shortest way along the one-way roads, as a list of junction names.
 
-    This small version of the Bellman-Ford method is easy to follow:
-    repeatedly check every road and remember any shorter way to its end.
+    We go over all the road pieces again and again. Whenever a piece gives a
+    shorter way to a junction we remember it. After a few rounds nothing improves.
     """
-    best_distance = {name: math.inf for name in NODES}
-    best_distance[start] = 0
-    previous_junction = {}
+    best = {name: math.inf for name in NODES}  # shortest distance found so far
+    best[start] = 0
+    came_from = {}
+    for _ in NODES:
+        for a, b in EDGES:
+            if best[a] + length(NODES[a], NODES[b]) < best[b]:
+                best[b] = best[a] + length(NODES[a], NODES[b])
+                came_from[b] = a
 
-    # With N junctions, a shortest route cannot need more than N-1 road edges.
-    for _ in range(len(NODES)):
-        for road_start, road_end in EDGES:
-            road_length = distance_between(
-                NODES[road_start], NODES[road_end]
-            )
-            new_distance = best_distance[road_start] + road_length
-            if new_distance < best_distance[road_end]:
-                best_distance[road_end] = new_distance
-                previous_junction[road_end] = road_start
-
-    # Walk backward from the destination to rebuild the route.
     path = [goal]
     while path[-1] != start:
-        path.append(previous_junction[path[-1]])
-    path.reverse()
-    return path
+        path.append(came_from[path[-1]])
+    return path[::-1]
 
 
 def road_start_for(point):
-    """Find the first junction of the road segment containing a point."""
-    x, y = point
-    for road_start, road_end in EDGES:
-        start_x, start_y = NODES[road_start]
-        end_x, end_y = NODES[road_end]
-
-        on_segment_x = min(start_x, end_x) - 0.01 <= x <= max(start_x, end_x) + 0.01
-        on_segment_y = min(start_y, end_y) - 0.01 <= y <= max(start_y, end_y) + 0.01
-        if on_segment_x and on_segment_y:
-            return road_start
-
-    raise ValueError("The slot is not next to a road")
+    """The junction at the start of the road piece that this point is on."""
+    for a, b in EDGES:
+        (x1, y1), (x2, y2) = NODES[a], NODES[b]
+        if min(x1, x2) <= point[0] <= max(x1, x2) and min(y1, y2) <= point[1] <= max(y1, y2):
+            return a
 
 
-def direction(point_a, point_b):
-    """Return the horizontal and vertical direction of a straight segment."""
-    dx = (point_b[0] > point_a[0]) - (point_b[0] < point_a[0])
-    dy = (point_b[1] > point_a[1]) - (point_b[1] < point_a[1])
-    return (dx, dy)
+def direction(a, b):
+    """Which way are we going? (1, 0) right, (-1, 0) left, (0, 1) down, (0, -1) up."""
+    return ((b[0] > a[0]) - (b[0] < a[0]), (b[1] > a[1]) - (b[1] < a[1]))
 
 
-def turn_direction(previous_direction, next_direction):
-    """Say whether the route turns left or right on the screen."""
-    cross_product = (
-        previous_direction[0] * next_direction[1]
-        - previous_direction[1] * next_direction[0]
-    )
-    return "right" if cross_product > 0 else "left"
+def turn(before, after):
+    """'left' or 'right'. y points DOWN on the screen, so a positive cross product is a right turn."""
+    return "right" if before[0] * after[1] - before[1] * after[0] > 0 else "left"
 
 
 def build_route(slot):
-    """Return route points, travelled distances, total length, and directions."""
-    access_point = (slot["access_x"], slot["access_y"])
-    bay_center = (
-        slot["x"] + slot["width"] / 2,
-        slot["y"] + slot["height"] / 2,
-    )
+    """The route for the website: the points to draw and the directions to read."""
+    access = (slot["access_x"], slot["access_y"])  # the spot on the road in front of the bay
+    bay = (slot["x"] + slot["width"] / 2, slot["y"] + slot["height"] / 2)
+    points = [NODES[name] for name in shortest_path("ENTRY", road_start_for(access))]
+    points += [access, bay]
 
-    junction_names = shortest_path("ENTRY", road_start_for(access_point))
-    points = [NODES[name] for name in junction_names]
-    points.extend([access_point, bay_center])
+    # distances[i] = how far along the route point i is (the moving dot uses this)
+    distances = [0]
+    for i in range(1, len(points)):
+        distances.append(distances[-1] + length(points[i - 1], points[i]))
 
-    # Store how far along the route each point is, starting at zero metres.
-    distances = [0.0]
-    for index in range(1, len(points)):
-        segment_length = distance_between(points[index - 1], points[index])
-        distances.append(distances[-1] + segment_length)
-
-    # Join consecutive segments that point in the same direction.
+    # A "leg" is one straight stretch: [direction, distance where it ends].
+    # Pieces that keep going the same way join into one leg.
     legs = []
-    for index in range(1, len(points)):
-        travel_direction = direction(points[index - 1], points[index])
-        if legs and legs[-1][0] == travel_direction:
-            legs[-1][2] = index
+    for i in range(1, len(points)):
+        way = direction(points[i - 1], points[i])
+        if legs and legs[-1][0] == way:
+            legs[-1][1] = distances[i]
         else:
-            legs.append([travel_direction, index - 1, index])
+            legs.append([way, distances[i]])
 
-    # Turn each leg into a short instruction for the driver.
     steps = []
-    for leg_number, (travel_direction, first_point, last_point) in enumerate(legs):
-        leg_length = round(distances[last_point] - distances[first_point])
-
-        if leg_number == 0:
-            text = f"Enter through the entry gate and drive straight for {leg_length} m."
-        elif leg_number == len(legs) - 1:
-            turn = turn_direction(legs[leg_number - 1][0], travel_direction)
-            text = f"Turn {turn} into bay {slot['label']}. You have arrived."
+    for n, (way, end) in enumerate(legs):
+        metres = round(end - (legs[n - 1][1] if n else 0))
+        if n == 0:
+            text = f"Enter through the entry gate and drive straight for {metres} m."
+        elif n == len(legs) - 1:
+            text = f"Turn {turn(legs[n - 1][0], way)} into bay {slot['label']}. You have arrived."
         else:
-            turn = turn_direction(legs[leg_number - 1][0], travel_direction)
-            text = f"Turn {turn} and drive {leg_length} m."
+            text = f"Turn {turn(legs[n - 1][0], way)} and drive {metres} m."
+        steps.append({"text": text, "distance": end})
 
-        steps.append({"text": text, "distance": round(distances[last_point], 2)})
-
-    return {
-        "points": points,
-        "distances": [round(value, 2) for value in distances],
-        "length_m": round(distances[-1]),
-        "steps": steps,
-    }
+    return {"points": points, "distances": distances, "steps": steps}

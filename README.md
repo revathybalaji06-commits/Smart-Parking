@@ -5,7 +5,7 @@ Real-time capacity tracking with a **dimensional matching algorithm** for size-a
 A first-semester systems project by A. Kamalesh, Kailesh, Thomas and Sachin.
 
 **Live app: https://smart-parking-2zvm.onrender.com**
-(Free hosting sleeps when idle, so the first visit can take about a minute. On a phone, use "Add to Home Screen" to install it like an app.)
+(Free hosting sleeps when idle, so the first visit can take about a minute. It works in a phone browser too.)
 
 ## The problem
 
@@ -53,7 +53,7 @@ Each reservation is tied to one slot ID, not a general zone. Once the size match
 
 - The lot is a realistic campus car park: an entry gate and an exit gate, **one-way roads** (cars drive on the left, as in India), rows of bays of different sizes at different places, trees, a security cabin, and cars already parked.
 - The app draws the **exact route** from the entry gate to the reserved bay, following the one-way roads (shortest path), with step-by-step directions such as "Turn right and drive 33 m", then "Turn right into bay S4".
-- A **moving dot** travels along the route (Start guidance, Pause, Next step, Replay). GPS does not work well inside a car park, so the dot is animated.
+- A **moving dot** travels along the route (Start guidance, Pause). GPS does not work well inside a car park, so the dot is animated.
 - Other cars arrive and leave on their own to keep the lot about 40% full. This simulates entrance sensors.
 
 The layout shown is a model of a typical lot, not a survey of a real Amrita car park.
@@ -77,14 +77,14 @@ Vehicle arrives
 
 ## Architecture
 
-The target design has four layers:
+The design has four layers:
 
-| Layer     | Role                                                                                          | Planned tech                 |
-|-----------|-----------------------------------------------------------------------------------------------|------------------------------|
-| Frontend  | Driver enters vehicle class, gets a slot ID and route, sees live per-class availability       | React / React Native         |
-| Backend   | API hosting the matching engine and capacity equation                                         | Node.js or Python (REST/GraphQL) |
-| Database  | Durable slot and reservation state; the single source of truth                                | PostgreSQL (or Firebase)     |
-| Sensing   | IoT sensors or beacons reporting arrivals and departures in real time                         | Simulated by keyboard input in the MVP |
+| Layer     | Role                                                                                    | What this project uses |
+|-----------|-----------------------------------------------------------------------------------------|------------------------|
+| Frontend  | Driver enters vehicle class, gets a slot and route, sees live per-class availability    | One web page: `frontend/index.html` (plain HTML, CSS and JavaScript) |
+| Backend   | API hosting the matching engine and capacity equation                                   | Python with FastAPI |
+| Database  | Durable slot and reservation state; the single source of truth                          | PostgreSQL |
+| Sensing   | IoT sensors or beacons reporting arrivals and departures in real time                   | Simulated: pretend traffic, and the "I have arrived" / "I am leaving" buttons |
 
 The frontend never talks to the database directly. Every request goes through the backend API, which is the only owner of the matching logic. Sensor events and driver requests use the same API, so one decision flow governs both.
 
@@ -129,7 +129,7 @@ Defined in [`db/schema.sql`](db/schema.sql) (PostgreSQL).
 
 ## Getting started
 
-Requires PostgreSQL, Python 3.11+ and Node 18+.
+Requires PostgreSQL and Python 3.11+.
 
 ```bash
 # 1. database (the server creates the tables and 50 slots on first start)
@@ -141,15 +141,9 @@ source .venv/bin/activate
 pip install -r backend/requirements.txt
 cd backend
 DATABASE_URL=postgresql://localhost/smart_parking uvicorn app.main:app --reload
-# API on http://localhost:8000, interactive docs at /docs
-
-# 3. frontend (in a second terminal, from the project root)
-cd frontend
-npm install
-npm run dev          # http://localhost:5173
 ```
 
-Run everything from one server (as in deployment): `cd frontend && npm run build`, then start the backend and open http://localhost:8000.
+Then open http://localhost:8000. The same server gives you the website and the API (interactive API docs are at `/docs`). There is nothing to build: the website is the single file `frontend/index.html`.
 
 Run the tests (they use a scratch database and **recreate its tables**):
 
@@ -171,7 +165,7 @@ LIMIT 1;
 
 ## Deploy
 
-The repo includes a `Dockerfile` (builds the React app, then runs the FastAPI server that also serves it) and a `render.yaml` blueprint for [Render](https://render.com):
+The repo includes a `Dockerfile` (runs the FastAPI server, which also serves the web page) and a `render.yaml` blueprint for [Render](https://render.com):
 
 1. Sign in to Render with GitHub and choose **New > Blueprint**.
 2. Select this repository. Render creates the web service and a free PostgreSQL database and links them through `DATABASE_URL`.
@@ -181,7 +175,7 @@ The free plan sleeps after inactivity, so the first request can take about a min
 
 ## Project status and roadmap
 
-Done: database, matching/reservation logic, API, React frontend, tests and deployment files. The sensor layer is simulated: the "I have arrived" and "I am leaving" buttons stand in for entrance sensors.
+Done: database, matching/reservation logic, API, web page, tests and deployment files. The sensor layer is simulated: the "I have arrived" and "I am leaving" buttons stand in for entrance sensors.
 
 | Week | Phase               | Goals                                                                              |
 |------|---------------------|------------------------------------------------------------------------------------|

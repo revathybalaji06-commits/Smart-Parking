@@ -1,25 +1,280 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>Smart Parking</title>
-    <meta name="description" content="Reserve a parking slot that fits your vehicle." />
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Smart Parking</title>
+  <style>
+    body { margin: 0; font-family: system-ui, sans-serif; background: #f4f6f8; color: #1f2933; }
+    main { max-width: 860px; margin: 0 auto; padding: 24px 16px 48px; }
+    h1 { margin: 0; }
+    h2 { margin: 24px 0 10px; font-size: 1.1rem; }
+    #error { background: #fde8e8; color: #9b1c1c; padding: 10px 14px; border-radius: 8px; margin: 12px 0; }
+    #cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+    .card, .panel, #map { background: white; border-radius: 10px; box-shadow: 0 1px 3px #0002; }
+    .card { padding: 14px; text-align: center; }
+    .card b { display: block; font-size: 2rem; }
+    .card:first-child { background: #1d4ed8; color: white; }
+    .panel { padding: 4px 18px 18px; margin-top: 20px; }
+    label { display: block; margin: 12px 0; font-weight: 600; }
+    input, select { display: block; width: 100%; box-sizing: border-box; margin-top: 4px; padding: 12px; font-size: 16px; border: 1px solid #cbd2d9; border-radius: 8px; }
+    button { background: #1d4ed8; color: white; border: 0; padding: 12px 18px; font-size: 1rem; border-radius: 8px; margin: 4px 6px 4px 0; }
+    button.grey { background: #7b8794; }
+    #slotName { font-size: 1.8rem; font-weight: 700; margin: 6px 0; }
+    #steps li { padding: 5px 8px; border-radius: 6px; color: #52606d; }
+    #steps li.current { background: #dbeafe; color: #1e3a8a; font-weight: 600; }
+    #steps li.done { text-decoration: line-through; color: #9aa5b1; }
+    #map { display: block; width: 100%; }
+    [hidden] { display: none; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Smart Parking</h1>
+  <p>Tell us your vehicle size and we reserve a slot that fits.</p>
+  <div id="error" hidden></div>
 
-    <!-- Makes the site installable as an app -->
-    <link rel="manifest" href="/manifest.webmanifest" />
-    <meta name="theme-color" content="#1d4ed8" />
-    <link rel="icon" type="image/png" href="/favicon.png" />
+  <h2>Available slots</h2>
+  <div id="cards"></div>
 
-    <!-- iPhone: "Add to Home Screen" -->
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-title" content="Parking" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+  <form id="reserveForm" class="panel">
+    <h2>Reserve a slot</h2>
+    <label>Number plate <input id="plate" placeholder="TN37AB1234"></label>
+    <label>Vehicle size
+      <select id="vehicleClass">
+        <option value="1">Compact (small cars, hatchbacks)</option>
+        <option value="2" selected>Sedan (mid-size sedans, coupes)</option>
+        <option value="3">SUV (SUVs, minivans)</option>
+        <option value="4">Full-Size (large and luxury cars)</option>
+      </select>
+    </label>
+    <button>Reserve</button>
+  </form>
+
+  <div id="reservation" class="panel" hidden>
+    <h2>Your reservation</h2>
+    <p id="slotName"></p>
+    <p id="status"></p>
+    <div id="onTheWay">
+      <ol id="steps"></ol>
+      <button id="guideButton">Start guidance</button>
+      <button id="arriveButton">I have arrived</button>
+      <button id="cancelButton" class="grey">Cancel</button>
+    </div>
+    <button id="leaveButton">I am leaving</button>
+  </div>
+
+  <h2>Parking lot</h2>
+  <svg id="map"></svg>
+  <p>Green: free. Yellow: reserved. Grey with a car: taken. Blue: your slot and route. Roads are one-way (arrows).</p>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+let layout = null;       // roads, trees, buildings (never changes)
+let slots = [];          // every bay and its status
+let reservation = null;  // my active reservation, or null
+let route = null;        // the way from the gate to my slot
+let travelled = 0;       // metres the dot has moved along the route
+let timer = null;        // runs while the dot is moving
+
+// Ask the backend for something. Throws an Error with the server's message.
+async function api(path, method = "GET", body) {
+  const response = await fetch(path, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
+  }).catch(() => { throw new Error("Cannot reach the server."); });
+  const data = await response.json();
+  if (!response.ok) throw Object.assign(new Error(data.message), { status: response.status });
+  return data;
+}
+
+function showError(message) {
+  $("error").textContent = message;
+  $("error").hidden = !message;
+}
+
+// Load everything from the server and draw the page again
+async function refresh() {
+  try {
+    const availability = await api("/availability");
+    slots = await api("/slots");
+    reservation = await loadMyReservation();
+    if (!reservation) stopGuidance();
+    if (reservation && !route) route = await api(`/reservations/${reservation.reservation_id}/route`);
+    drawCards(availability);
+    drawReservation();
+    drawMap();
+    if ($("error").textContent === "Cannot reach the server.") showError("");
+  } catch (error) {
+    showError(error.message);
+  }
+}
+
+// The browser remembers my reservation number. Forget it once it is finished or gone.
+async function loadMyReservation() {
+  const id = localStorage.getItem("reservationId");
+  if (!id) return null;
+  try {
+    const saved = await api(`/reservations/${id}`);
+    if (saved.status === "active") return saved;
+  } catch (error) {
+    if (error.status !== 404) throw error;  // a connection problem: keep the number
+  }
+  localStorage.removeItem("reservationId");
+  return null;
+}
+
+function drawCards(availability) {
+  const all = [{ name: "", ...availability.lot }, ...availability.classes];
+  $("cards").innerHTML = all
+    .map((c) => `<div class="card"><b>${c.free}</b>${c.name} free of ${c.max}</div>`)
+    .join("");
+}
+
+function drawReservation() {
+  $("reserveForm").hidden = reservation !== null;
+  $("reservation").hidden = reservation === null;
+  if (!reservation) return;
+  const parked = reservation.slot_status === "occupied";
+  $("slotName").textContent = "Slot " + reservation.label;
+  $("status").textContent = "Plate " + reservation.plate +
+    (parked ? " · you are parked" : " · held for 15 minutes, follow the blue route");
+  $("onTheWay").hidden = parked;
+  $("leaveButton").hidden = !parked;
+  $("steps").innerHTML = route.steps.map((step) => `<li>${step.text}</li>`).join("");
+  drawDot();
+}
+
+// The map is an SVG picture. One unit is about one metre.
+function drawMap() {
+  const { nodes, edges } = layout;
+  const colours = { free: "#bbf7d0", reserved: "#fde68a", occupied: "#d1d5db" };
+  const carColours = ["#64748b", "#b91c1c", "#1e40af", "#0f766e", "#a16207", "#7c3aed"];
+  let svg = `<defs><marker id="arrow" markerUnits="userSpaceOnUse" markerWidth="3" markerHeight="3"
+      refX="1.5" refY="1.5" orient="auto"><path d="M0,0 L3,1.5 L0,3 z" fill="white"/></marker></defs>
+    <rect width="${layout.width}" height="${layout.height}" fill="#e5e7e2"/>`;
+
+  // roads: a thick grey line, then a thin white line with an arrow in the middle
+  for (const [from, to] of edges) {
+    const [x1, y1] = nodes[from], [x2, y2] = nodes[to];
+    svg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#4b5159"
+              stroke-width="${layout.road_width}" stroke-linecap="square"/>
+            <polyline points="${x1},${y1} ${(x1 + x2) / 2},${(y1 + y2) / 2} ${x2},${y2}" fill="none"
+              stroke="white" stroke-width="0.2" stroke-dasharray="1.6" marker-mid="url(#arrow)"/>`;
+  }
+  for (const [name, x, y, w, h] of layout.buildings) {
+    svg += `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="0.6" fill="#9aa5b1"/>
+            <text x="${x + w / 2}" y="${y + h / 2 + 0.6}" font-size="1.8" text-anchor="middle">${name}</text>`;
+  }
+  for (const [x, y, r] of layout.trees) svg += `<circle cx="${x}" cy="${y}" r="${r}" fill="#43a047"/>`;
+  for (const [name, colour] of [["ENTRY", "#16a34a"], ["EXIT", "#dc2626"]]) {
+    const [x, y] = nodes[name];
+    svg += `<rect x="${x - 6}" y="${y + 2.4}" width="12" height="3.4" rx="0.5" fill="${colour}"/>
+            <text x="${x}" y="${y + 4.8}" font-size="1.9" text-anchor="middle" fill="white">${name}</text>`;
+  }
+
+  // bays: a taken bay shows a car, a free one shows its label
+  for (const s of slots) {
+    const mine = reservation && s.id === reservation.slot_id;
+    svg += `<rect x="${s.x}" y="${s.y}" width="${s.width}" height="${s.height}" fill="${colours[s.status]}"
+              stroke="${mine ? "#2563eb" : "white"}" stroke-width="${mine ? 0.7 : 0.25}"/>`;
+    svg += s.status === "occupied"
+      ? `<rect x="${s.x + 0.5}" y="${s.y + 0.5}" width="${s.width - 1}" height="${s.height - 1}" rx="0.9"
+           fill="${carColours[s.id % carColours.length]}"/>`
+      : `<text x="${s.x + s.width / 2}" y="${s.y + s.height / 2 + 0.5}" font-size="1.3"
+           text-anchor="middle" fill="#14532d">${s.label}</text>`;
+  }
+
+  // my route and the moving dot (only while I am on the way)
+  if (reservation && reservation.slot_status === "reserved") {
+    svg += `<polyline points="${route.points.join(" ")}" fill="none" stroke="#2563eb"
+              stroke-width="1.2" stroke-dasharray="2.4 1.6"/>
+            <circle id="dot" r="1.6" fill="#2563eb" stroke="white" stroke-width="0.5"/>`;
+  }
+  $("map").setAttribute("viewBox", `0 0 ${layout.width} ${layout.height}`);
+  $("map").innerHTML = svg;
+  drawDot();
+}
+
+// Put the dot `travelled` metres along the route and highlight the current step
+function drawDot() {
+  if (!route) return;
+  const { points, distances, steps } = route;
+  let i = 1;
+  while (i < points.length - 1 && travelled > distances[i]) i++;
+  const part = (travelled - distances[i - 1]) / (distances[i] - distances[i - 1]);
+  if ($("dot")) {
+    $("dot").setAttribute("cx", points[i - 1][0] + (points[i][0] - points[i - 1][0]) * part);
+    $("dot").setAttribute("cy", points[i - 1][1] + (points[i][1] - points[i - 1][1]) * part);
+  }
+  let current = steps.findIndex((step) => step.distance > travelled + 0.01);
+  if (current === -1) current = steps.length - 1;
+  [...$("steps").children].forEach((li, n) => {
+    li.className = n === current ? "current" : n < current ? "done" : "";
+  });
+}
+
+function stopGuidance() {
+  clearInterval(timer);
+  timer = null;
+  route = null;
+  travelled = 0;
+  $("guideButton").textContent = "Start guidance";
+}
+
+// Start, pause or restart the moving dot (0.45 m every 40 ms is about 40 km/h)
+$("guideButton").onclick = () => {
+  const total = route.distances[route.distances.length - 1];
+  if (timer) {
+    clearInterval(timer);
+    timer = null;
+  } else {
+    if (travelled >= total) travelled = 0;
+    timer = setInterval(() => {
+      travelled = Math.min(travelled + 0.45, total);
+      drawDot();
+      if (travelled >= total) $("guideButton").onclick();  // reached the bay: stop
+    }, 40);
+  }
+  $("guideButton").textContent = timer ? "Pause" : "Start guidance";
+};
+
+// Run one button action, show any error, then reload the page data
+async function run(action) {
+  showError("");
+  try {
+    await action();
+  } catch (error) {
+    showError(error.message);
+  }
+  refresh();
+}
+
+$("reserveForm").onsubmit = (event) => {
+  event.preventDefault();
+  run(async () => {
+    const made = await api("/reserve", "POST",
+      { plate: $("plate").value, vehicle_class: Number($("vehicleClass").value) });
+    localStorage.setItem("reservationId", made.reservation_id);
+  });
+};
+const myId = () => reservation.reservation_id;
+$("arriveButton").onclick = () => run(() => api(`/reservations/${myId()}/arrive`, "POST"));
+$("cancelButton").onclick = () => run(() => api(`/reservations/${myId()}/cancel`, "POST"));
+$("leaveButton").onclick = () => run(() => api(`/reservations/${myId()}/depart`, "POST"));
+
+// Start: load the map once, then refresh everything every 5 seconds
+api("/layout").then((data) => {
+  layout = data;
+  refresh();
+  setInterval(refresh, 5000);
+});
+
+// Older versions installed a service worker; remove it so phones get this page
+navigator.serviceWorker?.getRegistrations().then((list) => list.forEach((worker) => worker.unregister()));
+</script>
+</body>
 </html>
