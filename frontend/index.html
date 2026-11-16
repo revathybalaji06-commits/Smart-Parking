@@ -20,6 +20,9 @@
     input, select { display: block; width: 100%; box-sizing: border-box; margin-top: 4px; padding: 12px; font-size: 16px; border: 1px solid #cbd2d9; border-radius: 8px; }
     button { background: #1d4ed8; color: white; border: 0; padding: 12px 18px; font-size: 1rem; border-radius: 8px; margin: 4px 6px 4px 0; }
     button.grey { background: #7b8794; }
+    .vehicle { border-top: 1px solid #e4e7eb; padding: 12px 0; }
+    .vehicle.selected { border-left: 4px solid #2563eb; padding-left: 12px; }
+    button:disabled { opacity: 0.6; cursor: wait; }
     #slotName { font-size: 1.8rem; font-weight: 700; margin: 6px 0; }
     #steps li { padding: 5px 8px; border-radius: 6px; color: #52606d; }
     #steps li.current { background: #dbeafe; color: #1e3a8a; font-weight: 600; }
@@ -51,17 +54,20 @@
     <button>Reserve</button>
   </form>
 
+  <section class="panel" aria-labelledby="vehiclesHeading">
+    <h2 id="vehiclesHeading">Your active vehicles</h2>
+    <p>Reserve another vehicle above. Select a vehicle below to view its slot and route.</p>
+    <div id="vehicles"></div>
+  </section>
+
   <div id="reservation" class="panel" hidden>
-    <h2>Your reservation</h2>
+    <h2>Selected vehicle</h2>
     <p id="slotName"></p>
     <p id="status"></p>
     <div id="onTheWay">
       <ol id="steps"></ol>
       <button id="guideButton">Start guidance</button>
-      <button id="arriveButton">I have arrived</button>
-      <button id="cancelButton" class="grey">Cancel</button>
     </div>
-    <button id="leaveButton">I am leaving</button>
   </div>
 
   <h2>Parking lot</h2>
@@ -74,7 +80,11 @@ const $ = (id) => document.getElementById(id);
 
 let layout = null;       // roads, trees, buildings (never changes)
 let slots = [];          // every bay and its status
-let reservation = null;  // my active reservation, or null
+let reservations = [];  // all active vehicles remembered by this browser
+let selectedId = localStorage.getItem("selectedReservationId");
+let reservation = null;  // selected vehicle, used by the map and guidance
+let busy = false;
+let refreshQueue = Promise.resolve();
 let route = null;        // the way from the gate to my slot
 let travelled = 0;       // metres the dot has moved along the route
 let timer = null;        // runs while the dot is moving
@@ -97,13 +107,27 @@ function showError(message) {
 }
 
 // Load everything from the server and draw the page again
-async function refresh() {
+function refresh() {
+  // Queue reloads so an older poll cannot overwrite a newer action or selection.
+  refreshQueue = refreshQueue.then(refreshData);
+  return refreshQueue;
+}
+
+async function refreshData() {
   try {
     const availability = await api("/availability");
     slots = await api("/slots");
-    reservation = await loadMyReservation();
-    if (!reservation) stopGuidance();
-    if (reservation && !route) route = await api(`/reservations/${reservation.reservation_id}/route`);
+    reservations = await loadReservations();
+    const previousId = reservation?.reservation_id;
+    reservation = reservations.find((r) => String(r.reservation_id) === selectedId) || reservations[0] || null;
+    selectedId = reservation ? String(reservation.reservation_id) : null;
+    if (selectedId) localStorage.setItem("selectedReservationId", selectedId);
+    else localStorage.removeItem("selectedReservationId");
+    if (previousId !== reservation?.reservation_id || reservation?.slot_status !== "reserved") stopGuidance();
+    if (reservation?.slot_status === "reserved" && !route) {
+      route = await api(`/reservations/${reservation.reservation_id}/route`);
+    }
+    drawVehicles();
     drawCards(availability);
     drawReservation();
     drawMap();
@@ -113,18 +137,69 @@ async function refresh() {
   }
 }
 
-// The browser remembers my reservation number. Forget it once it is finished or gone.
-async function loadMyReservation() {
-  const id = localStorage.getItem("reservationId");
-  if (!id) return null;
-  try {
-    const saved = await api(`/reservations/${id}`);
-    if (saved.status === "active") return saved;
-  } catch (error) {
-    if (error.status !== 404) throw error;  // a connection problem: keep the number
-  }
+// Carry over the old single reservation, and only forget confirmed finished IDs.
+function rememberedIds() {
+  let ids;
+  try { ids = JSON.parse(localStorage.getItem("reservationIds") || "[]"); }
+  catch { ids = []; }
+  if (!Array.isArray(ids)) ids = [];
+  const legacy = localStorage.getItem("reservationId");
+  if (legacy) ids.push(legacy);
+  return [...new Set(ids.map(String).filter((id) => /^\d+$/.test(id)))];
+}
+
+function saveIds(ids) {
+  localStorage.setItem("reservationIds", JSON.stringify(ids.map(String)));
   localStorage.removeItem("reservationId");
-  return null;
+}
+
+async function loadReservations() {
+  const active = [];
+  for (const id of rememberedIds()) {
+    try {
+      const saved = await api(`/reservations/${id}`);
+      if (saved.status === "active") active.push(saved);
+    } catch (error) {
+      if (error.status !== 404) throw error; // Keep every ID on a connection failure.
+    }
+  }
+  saveIds(active.map((r) => r.reservation_id));
+  return active;
+}
+
+function drawVehicles() {
+  const list = $("vehicles");
+  list.replaceChildren();
+  if (!reservations.length) list.textContent = "No active vehicles in this browser yet.";
+  for (const r of reservations) {
+    const row = document.createElement("div");
+    const selected = String(r.reservation_id) === selectedId;
+    row.className = "vehicle" + (selected ? " selected" : "");
+    const details = document.createElement("p");
+    details.textContent = `${r.plate} · Slot ${r.label} · ${r.slot_status === "occupied" ? "Parked" : "Reserved (15-minute hold)"}`;
+    row.append(details);
+    const button = (label, handler) => {
+      const control = document.createElement("button");
+      control.type = "button";
+      control.textContent = label;
+      control.disabled = busy;
+      control.onclick = handler;
+      row.append(control);
+      return control;
+    };
+    const select = button(selected ? "Selected" : "View slot / route", () => {
+      selectedId = String(r.reservation_id);
+      refresh();
+    });
+    select.setAttribute("aria-pressed", String(selected));
+    if (r.slot_status === "occupied") {
+      button("I am leaving", () => run(() => api(`/reservations/${r.reservation_id}/depart`, "POST")));
+    } else {
+      button("I have arrived", () => run(() => api(`/reservations/${r.reservation_id}/arrive`, "POST")));
+      button("Cancel", () => run(() => api(`/reservations/${r.reservation_id}/cancel`, "POST"))).className = "grey";
+    }
+    list.append(row);
+  }
 }
 
 function drawCards(availability) {
@@ -135,7 +210,6 @@ function drawCards(availability) {
 }
 
 function drawReservation() {
-  $("reserveForm").hidden = reservation !== null;
   $("reservation").hidden = reservation === null;
   if (!reservation) return;
   const parked = reservation.slot_status === "occupied";
@@ -143,8 +217,7 @@ function drawReservation() {
   $("status").textContent = "Plate " + reservation.plate +
     (parked ? " · you are parked" : " · held for 15 minutes, follow the blue route");
   $("onTheWay").hidden = parked;
-  $("leaveButton").hidden = !parked;
-  $("steps").innerHTML = route.steps.map((step) => `<li>${step.text}</li>`).join("");
+  $("steps").innerHTML = (route?.steps || []).map((step) => `<li>${step.text}</li>`).join("");
   drawDot();
 }
 
@@ -189,7 +262,7 @@ function drawMap() {
   }
 
   // my route and the moving dot (only while I am on the way)
-  if (reservation && reservation.slot_status === "reserved") {
+  if (reservation && reservation.slot_status === "reserved" && route) {
     svg += `<polyline points="${route.points.join(" ")}" fill="none" stroke="#2563eb"
               stroke-width="1.2" stroke-dasharray="2.4 1.6"/>
             <circle id="dot" r="1.6" fill="#2563eb" stroke="white" stroke-width="0.5"/>`;
@@ -227,6 +300,7 @@ function stopGuidance() {
 
 // Start, pause or restart the moving dot (0.45 m every 40 ms is about 40 km/h)
 $("guideButton").onclick = () => {
+  if (!route) return;
   const total = route.distances[route.distances.length - 1];
   if (timer) {
     clearInterval(timer);
@@ -244,13 +318,22 @@ $("guideButton").onclick = () => {
 
 // Run one button action, show any error, then reload the page data
 async function run(action) {
+  if (busy) return;
+  busy = true;
+  $("reserveForm").querySelector("button").disabled = true;
+  drawVehicles();
   showError("");
   try {
+    await refreshQueue;
     await action();
+    await refresh();
   } catch (error) {
     showError(error.message);
+  } finally {
+    busy = false;
+    $("reserveForm").querySelector("button").disabled = false;
+    drawVehicles();
   }
-  refresh();
 }
 
 $("reserveForm").onsubmit = (event) => {
@@ -258,19 +341,16 @@ $("reserveForm").onsubmit = (event) => {
   run(async () => {
     const made = await api("/reserve", "POST",
       { plate: $("plate").value, vehicle_class: Number($("vehicleClass").value) });
-    localStorage.setItem("reservationId", made.reservation_id);
+    saveIds([...rememberedIds(), made.reservation_id]);
+    selectedId = String(made.reservation_id);
+    $("plate").value = "";
   });
 };
-const myId = () => reservation.reservation_id;
-$("arriveButton").onclick = () => run(() => api(`/reservations/${myId()}/arrive`, "POST"));
-$("cancelButton").onclick = () => run(() => api(`/reservations/${myId()}/cancel`, "POST"));
-$("leaveButton").onclick = () => run(() => api(`/reservations/${myId()}/depart`, "POST"));
-
 // Start: load the map once, then refresh everything every 5 seconds
 api("/layout").then((data) => {
   layout = data;
   refresh();
-  setInterval(refresh, 5000);
+  setInterval(() => { if (!busy) refresh(); }, 5000);
 });
 
 // Older versions installed a service worker; remove it so phones get this page
